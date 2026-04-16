@@ -1,0 +1,40 @@
+{
+  "name": "fitenclosuregen",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "copy-occt": "mkdir -p public/occt && cp node_modules/occt-import-js/dist/occt-import-js.js node_modules/occt-import-js/dist/occt-import-js.wasm public/occt/",
+    "predev": "npm run copy-occt",
+    "prebuild": "npm run copy-occt",
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "e2e": "playwright test"
+  },
+  "dependencies": {
+    "@react-three/drei": "^9.114.0",
+    "@react-three/fiber": "^8.17.10",
+    "comlink": "^4.4.2",
+    "leva": "^0.9.35",
+    "manifold-3d": "^3.0.0",
+    "occt-import-js": "^0.0.22",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "three": "^0.169.0",
+    "three-stdlib": "^2.33.0",
+    "zustand": "^5.0.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.59.1",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@types/three": "^0.169.0",
+    "@vitejs/plugin-react": "^4.3.3",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.10",
+    "vitest": "^2.1.4"
+  }
+}
