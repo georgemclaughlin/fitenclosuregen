@@ -12,7 +12,7 @@ test("T-Display default output screenshots", async ({ page }) => {
 
   await page.goto("/");
   await expect(page.getByText("Drop a model file")).toBeVisible();
-  await page.locator('input[type="file"]').setInputFiles(fixture!);
+  await page.locator('input[type="file"]').first().setInputFiles(fixture!);
   await expect(page.getByText(/^Ready\.$/)).toBeVisible({ timeout: 45_000 });
 
   const canvas = page.locator("canvas").first();

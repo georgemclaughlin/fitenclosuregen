@@ -230,6 +230,8 @@ function ItemCard({ item, overlapping }: { item: Item; overlapping: boolean }) {
   const renameItem = useStore((s) => s.renameItem);
   const setPrimitive = useStore((s) => s.setPrimitive);
   const flipImportItem = useStore((s) => s.flipImportItem);
+  const flushItem = useStore((s) => s.flushItem);
+  const unflushItem = useStore((s) => s.unflushItem);
   const items = useStore((s) => s.items);
   const params = useStore((s) => s.params);
   const [expanded, setExpanded] = useState(true);
@@ -341,6 +343,18 @@ function ItemCard({ item, overlapping }: { item: Item; overlapping: boolean }) {
             <button style={smallBtn} onClick={() => stackAlong(0, -1)}>-X</button>
             <button style={smallBtn} onClick={() => stackAlong(1, 1)}>+Y</button>
             <button style={smallBtn} onClick={() => stackAlong(1, -1)}>-Y</button>
+          </div>
+          <div style={{ fontSize: 11, color: "#888" }}>
+            Flush to wall{item.flushFace ? ` (${item.flushFace})` : ""}:
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 3 }}>
+            {(["+x", "-x", "+y", "-y"] as const).map((f) => (
+              <button
+                key={f}
+                style={item.flushFace === f ? { ...smallBtn, background: "#a52" } : smallBtn}
+                onClick={() => item.flushFace === f ? unflushItem(item.id) : flushItem(item.id, f)}
+              >{f}</button>
+            ))}
           </div>
         </>
       )}

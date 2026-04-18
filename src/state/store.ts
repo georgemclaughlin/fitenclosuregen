@@ -2,6 +2,7 @@ import { create } from "zustand";
 import {
   Cutout,
   EnclosureParams,
+  FaceAxis,
   GenerateResult,
   ImportItem,
   ImportedMesh,
@@ -11,9 +12,13 @@ import {
   PrimitiveItem,
   Vec3,
   defaultParams,
+  faceAxisNum,
+  faceSignNum,
 } from "../cad/types";
 import { computeAabb, transformedAabb } from "../cad/bbox";
 import { primitiveAabb, PRIMITIVE_DEFAULTS } from "../cad/presets";
+import { buildEnclosureGeometry } from "../cad/shell";
+import type { AABB } from "../cad/types";
 
 type FlipAxis = 0 | 1 | 2;
 
@@ -60,6 +65,8 @@ interface AppState {
   renameItem: (id: string, name: string) => void;
   setPrimitive: (id: string, primitive: Primitive) => void;
   flipImportItem: (id: string, axis: FlipAxis) => void;
+  flushItem: (id: string, face: FaceAxis) => void;
+  unflushItem: (id: string) => void;
   clearItems: () => void;
 
   setParam: <K extends keyof EnclosureParams>(k: K, v: EnclosureParams[K]) => void;
@@ -162,6 +169,71 @@ export const useStore = create<AppState>((set) => ({
         it.id === id && it.kind === "import" ? { ...it, mesh: flipImportedMesh(it.mesh, axis) } : it,
       ),
     })),
+  flushItem: (id, face) =>
+    set((s) => {
+      const idx = s.items.findIndex((it) => it.id === id);
+      if (idx < 0) return s;
+      const allAabbs = s.items.map(itemWorldAabb);
+      const axis = faceAxisNum(face);
+      const sign = faceSignNum(face);
+      // Compute combinedAabb matching the worker's flush logic: on the
+      // flushed side use local rotated AABB (prevents circular growth), on
+      // the opposite side use world AABB (tight fit around shifted item).
+      const combined: AABB = {
+        min: [Infinity, Infinity, Infinity] as Vec3,
+        max: [-Infinity, -Infinity, -Infinity] as Vec3,
+      };
+      for (let i = 0; i < s.items.length; i++) {
+        const box = allAabbs[i];
+        const it = s.items[i];
+        const itemFlush = i === idx ? face : it.flushFace;
+        if (itemFlush) {
+          const fAxis = faceAxisNum(itemFlush);
+          const fSign = faceSignNum(itemFlush);
+          const localAabb = it.kind === "import" ? it.mesh.aabb : primitiveAabb(it.primitive);
+          const localRotated = transformedAabb(localAabb, it.rotation, [0, 0, 0] as Vec3);
+          for (let a = 0; a < 3; a++) {
+            if (a === fAxis) {
+              if (fSign > 0) {
+                combined.min[a] = Math.min(combined.min[a], box.min[a]);
+                combined.max[a] = Math.max(combined.max[a], localRotated.max[a]);
+              } else {
+                combined.min[a] = Math.min(combined.min[a], localRotated.min[a]);
+                combined.max[a] = Math.max(combined.max[a], box.max[a]);
+              }
+            } else {
+              combined.min[a] = Math.min(combined.min[a], box.min[a]);
+              combined.max[a] = Math.max(combined.max[a], box.max[a]);
+            }
+          }
+        } else {
+          for (let a = 0; a < 3; a++) {
+            combined.min[a] = Math.min(combined.min[a], box.min[a]);
+            combined.max[a] = Math.max(combined.max[a], box.max[a]);
+          }
+        }
+      }
+      for (let a = 0; a < 3; a++) {
+        if (!isFinite(combined.min[a]) || !isFinite(combined.max[a]) || combined.min[a] >= combined.max[a]) {
+          combined.min[a] = -1; combined.max[a] = 1;
+        }
+      }
+      const geom = buildEnclosureGeometry(combined, s.params);
+      const myAabb = allAabbs[idx];
+      const pos: Vec3 = [s.items[idx].position[0], s.items[idx].position[1], s.items[idx].position[2]];
+      if (sign > 0) {
+        pos[axis] += geom.outer.max[axis] - myAabb.max[axis];
+      } else {
+        pos[axis] += geom.outer.min[axis] - myAabb.min[axis];
+      }
+      return {
+        items: s.items.map((it) => it.id === id ? { ...it, position: pos, flushFace: face } : it),
+      };
+    }),
+  unflushItem: (id) =>
+    set((s) => ({
+      items: s.items.map((it) => it.id === id ? { ...it, flushFace: null } : it),
+    })),
   clearItems: () => set({ items: [], cutouts: [] }),
 
   setParam: (k, v) => set((s) => ({ params: { ...s.params, [k]: v } })),
@@ -177,22 +249,53 @@ export const useStore = create<AppState>((set) => ({
   setShellOpacity: (v) => set({ shellOpacity: v }),
 }));
 
-/** Item IDs that overlap any other item (AABB intersection with a small
- *  epsilon to ignore shared face touches). */
-export function overlappingItemIds(items: Item[], epsilon = 0.05): Set<string> {
-  const boxes = items.map((it) => ({ id: it.id, box: itemWorldAabb(it) }));
+/** World-space AABBs of an item's constituent parts: one per connected
+ *  component for imports (pin headers, PCB, connectors...), one total for
+ *  primitives. Using parts avoids false-positive overlap between a sparse
+ *  envelope (e.g. pin-header tips) and a neighboring solid body. */
+function itemPartAabbs(it: Item): AABB[] {
+  if (it.kind === "import" && it.mesh.parts.length > 0) {
+    return it.mesh.parts.map((p) =>
+      transformedAabb(computeAabb(p.positions), it.rotation, it.position),
+    );
+  }
+  return [itemWorldAabb(it)];
+}
+
+const aabbVolume = (b: AABB) =>
+  Math.max(0, b.max[0] - b.min[0]) *
+  Math.max(0, b.max[1] - b.min[1]) *
+  Math.max(0, b.max[2] - b.min[2]);
+
+/** Item IDs that meaningfully overlap. Compares each pair-of-parts; if any
+ *  part of A intersects any part of B by >= `ratio` of the smaller part's
+ *  volume, both items are flagged. A pin-header envelope is made up of many
+ *  tiny pin AABBs, so a neighboring battery box only flags overlap if a pin
+ *  truly pokes into it. */
+export function overlappingItemIds(items: Item[], ratio = 0.1): Set<string> {
+  const pieces = items.map((it) => ({ id: it.id, boxes: itemPartAabbs(it) }));
   const hit = new Set<string>();
-  for (let i = 0; i < boxes.length; i++) {
-    for (let j = i + 1; j < boxes.length; j++) {
-      const a = boxes[i].box, b = boxes[j].box;
-      const overlap = (
-        a.min[0] < b.max[0] - epsilon && a.max[0] > b.min[0] + epsilon &&
-        a.min[1] < b.max[1] - epsilon && a.max[1] > b.min[1] + epsilon &&
-        a.min[2] < b.max[2] - epsilon && a.max[2] > b.min[2] + epsilon
-      );
-      if (overlap) {
-        hit.add(boxes[i].id);
-        hit.add(boxes[j].id);
+  for (let i = 0; i < pieces.length; i++) {
+    for (let j = i + 1; j < pieces.length; j++) {
+      let collided = false;
+      for (const a of pieces[i].boxes) {
+        if (collided) break;
+        for (const b of pieces[j].boxes) {
+          const dx = Math.min(a.max[0], b.max[0]) - Math.max(a.min[0], b.min[0]);
+          const dy = Math.min(a.max[1], b.max[1]) - Math.max(a.min[1], b.min[1]);
+          const dz = Math.min(a.max[2], b.max[2]) - Math.max(a.min[2], b.min[2]);
+          if (dx <= 0 || dy <= 0 || dz <= 0) continue;
+          const ov = dx * dy * dz;
+          const smaller = Math.min(aabbVolume(a), aabbVolume(b));
+          if (smaller > 0 && ov / smaller >= ratio) {
+            collided = true;
+            break;
+          }
+        }
+      }
+      if (collided) {
+        hit.add(pieces[i].id);
+        hit.add(pieces[j].id);
       }
     }
   }

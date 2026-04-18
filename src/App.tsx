@@ -35,6 +35,7 @@ export function App() {
               rotation: it.rotation,
               aabb: it.mesh.aabb,
               parts: it.mesh.parts,
+              flushFace: it.flushFace,
             };
           }
           return {
@@ -44,6 +45,7 @@ export function App() {
             rotation: it.rotation,
             aabb: primitiveAabb(it.primitive),
             primitive: it.primitive,
+            flushFace: it.flushFace,
           };
         });
         const res = await generate({ items: reqItems, params, cutouts });

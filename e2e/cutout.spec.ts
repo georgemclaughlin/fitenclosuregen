@@ -6,7 +6,7 @@ test("inspect cutout on XIAO with -X snap", async ({ page }) => {
   test.skip(!fixture, "no step fixture");
 
   await page.goto("/");
-  await page.locator('input[type="file"]').setInputFiles(fixture!);
+  await page.locator('input[type="file"]').first().setInputFiles(fixture!);
   await expect(page.getByText(/^Ready\.$/)).toBeVisible({ timeout: 45_000 });
 
   // Apply -X face snap so the USB connector pokes out the -X wall.

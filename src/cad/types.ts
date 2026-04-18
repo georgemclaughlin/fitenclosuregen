@@ -84,6 +84,21 @@ interface ItemBase {
   position: Vec3;
   /** Euler rotation in degrees, applied in XYZ order about local origin. */
   rotation: Vec3;
+  /** When set, the item is pushed to this face of the outer shell so parts
+   *  extending past the main body punch through the wall (USB ports, etc.).
+   *  The flushed axis is excluded from enclosure sizing so the box doesn't
+   *  grow to accommodate the overshoot. */
+  flushFace?: FaceAxis | null;
+}
+
+export function faceAxisNum(face: FaceAxis): 0 | 1 | 2 {
+  if (face === "+x" || face === "-x") return 0;
+  if (face === "+y" || face === "-y") return 1;
+  return 2;
+}
+
+export function faceSignNum(face: FaceAxis): 1 | -1 {
+  return face.startsWith("+") ? 1 : -1;
 }
 
 export interface ImportItem extends ItemBase {
@@ -108,6 +123,7 @@ export interface ItemRequest {
   aabb: AABB;
   parts?: MeshData[];
   primitive?: Primitive;
+  flushFace?: FaceAxis | null;
 }
 
 export interface GenerateRequest {

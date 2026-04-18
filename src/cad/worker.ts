@@ -4,7 +4,8 @@ import type {
   AABB, GenerateRequest, GenerateResult, ItemRequest, MeshData, Primitive, Vec3,
 } from "./types";
 import { buildEnclosureGeometry, cutoutBox } from "./shell";
-import { transformedAabb, unionAabbs } from "./bbox";
+import { transformedAabb } from "./bbox";
+import { computeCombinedAabbWithFlush, computeCavityPocket } from "./flush";
 
 type ManifoldNs = Awaited<ReturnType<typeof ManifoldModule>>;
 type ManifoldInst = ReturnType<ManifoldNs["Manifold"]["cube"]>;
@@ -239,13 +240,13 @@ async function generate(req: GenerateRequest): Promise<GenerateResult> {
     return { base: toMeshData(shell), lid: toMeshData(shell), outer: geom.outer };
   }
 
-  // Per-item manifolds.
-  const perItemCavity: ManifoldInst[] = [];
+  // Per-item world AABBs + bare-hull cutouts (only for flushed items that
+  // need to pierce the wall).
   const perItemCutout: ManifoldInst[] = [];
   const perItemAabb: AABB[] = [];
   for (const it of items) {
-    // Cache the un-posed local manifolds. Pose (rotation + translation) is
-    // applied every generate so reposition/rotation are cheap.
+    perItemAabb.push(transformedAabb(it.aabb, it.rotation, it.position));
+    if (!it.flushFace) continue;
     const cacheKey = it.kind === "primitive"
       ? `${it.id}|prim|${JSON.stringify(it.primitive)}|${clearance}`
       : `${it.id}|imp|${clearance}`;
@@ -258,25 +259,31 @@ async function generate(req: GenerateRequest): Promise<GenerateResult> {
       }
     }
     if (entry) {
-      perItemCavity.push(applyPose(entry.cavityLocal, it.rotation, it.position));
       perItemCutout.push(applyPose(entry.cutoutLocal, it.rotation, it.position));
     }
-    perItemAabb.push(transformedAabb(it.aabb, it.rotation, it.position));
   }
 
-  const combinedAabb = unionAabbs(perItemAabb);
+  // Compute combinedAabb with flush exclusion: flushed items' contribution
+  // on their flushed axis/side is excluded so the outer box doesn't grow to
+  // accommodate the overshoot.
+  const combinedAabb = computeCombinedAabbWithFlush(items, perItemAabb);
   const geom = buildEnclosureGeometry(combinedAabb, params);
 
   const outerBox = params.fillet > 0
     ? roundedBoxFromAabb(M, geom.outer, params.fillet)
     : boxFromAabb(Manifold, geom.outer);
 
-  // Union per-item cavities into one, intersect with inner AABB so curved
-  // silhouettes can't pierce walls. Ports/connectors poke through via the
-  // bare cutout hull subtraction below.
+  const cavityBlocks: ManifoldInst[] = [];
+  for (let i = 0; i < items.length; i++) {
+    const pocket = computeCavityPocket(
+      perItemAabb[i], clearance, geom.splitZ, items[i].flushFace, geom.inner,
+    );
+    cavityBlocks.push(boxFromAabb(Manifold, pocket));
+  }
+
   let cavity: ManifoldInst | null = null;
-  if (perItemCavity.length > 0) {
-    cavity = perItemCavity.length === 1 ? perItemCavity[0] : Manifold.union(perItemCavity);
+  if (cavityBlocks.length > 0) {
+    cavity = cavityBlocks.length === 1 ? cavityBlocks[0] : Manifold.union(cavityBlocks);
     cavity = cavity.intersect(boxFromAabb(Manifold, geom.inner));
   }
 
