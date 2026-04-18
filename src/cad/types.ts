@@ -104,6 +104,8 @@ export function faceSignNum(face: FaceAxis): 1 | -1 {
 export interface ImportItem extends ItemBase {
   kind: "import";
   mesh: ImportedMesh;
+  /** Bumps whenever the imported mesh geometry changes. */
+  meshVersion: number;
 }
 
 export interface PrimitiveItem extends ItemBase {
@@ -123,6 +125,7 @@ export interface ItemRequest {
   aabb: AABB;
   parts?: MeshData[];
   primitive?: Primitive;
+  meshVersion?: number;
   flushFace?: FaceAxis | null;
 }
 

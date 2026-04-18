@@ -35,6 +35,7 @@ export function App() {
               rotation: it.rotation,
               aabb: it.mesh.aabb,
               parts: it.mesh.parts,
+              meshVersion: it.meshVersion,
               flushFace: it.flushFace,
             };
           }

@@ -16,6 +16,7 @@ import {
   faceSignNum,
 } from "../cad/types";
 import { computeAabb, transformedAabb } from "../cad/bbox";
+import { itemWorldAabb, placeAlongside } from "../cad/layout";
 import { primitiveAabb, PRIMITIVE_DEFAULTS } from "../cad/presets";
 import { buildEnclosureGeometry } from "../cad/shell";
 import type { AABB } from "../cad/types";
@@ -82,54 +83,19 @@ interface AppState {
 }
 
 function makeImportItem(name: string, mesh: ImportedMesh, position: Vec3): ImportItem {
-  return { id: crypto.randomUUID(), kind: "import", name, mesh, position, rotation: [0, 0, 0] };
+  return {
+    id: crypto.randomUUID(),
+    kind: "import",
+    name,
+    mesh,
+    meshVersion: 0,
+    position,
+    rotation: [0, 0, 0],
+  };
 }
 
 function makePrimitiveItem(name: string, primitive: Primitive, position: Vec3): PrimitiveItem {
   return { id: crypto.randomUUID(), kind: "primitive", name, primitive, position, rotation: [0, 0, 0] };
-}
-
-/** Place a new item alongside the existing stack so it doesn't overlap.
- *  Picks the axis with the most headroom (largest current extent) and lays
- *  the new item flush against the +side of the existing bounding box. */
-function placeAlongside(
-  existing: Item[],
-  localAabb: { min: Vec3; max: Vec3 },
-  clearance: number,
-): Vec3 {
-  if (existing.length === 0) return [0, 0, 0];
-  const boxes = existing.map(itemWorldAabb);
-  const combined = {
-    min: [Infinity, Infinity, Infinity] as Vec3,
-    max: [-Infinity, -Infinity, -Infinity] as Vec3,
-  };
-  for (const b of boxes) {
-    for (let i = 0; i < 3; i++) {
-      if (b.min[i] < combined.min[i]) combined.min[i] = b.min[i];
-      if (b.max[i] > combined.max[i]) combined.max[i] = b.max[i];
-    }
-  }
-  // Longest axis of existing stack → place along that axis to keep the enclosure proportionate.
-  const extents: Vec3 = [
-    combined.max[0] - combined.min[0],
-    combined.max[1] - combined.min[1],
-    combined.max[2] - combined.min[2],
-  ];
-  const axis: 0 | 1 | 2 = extents[0] >= extents[1] && extents[0] >= extents[2]
-    ? 0
-    : extents[1] >= extents[2] ? 1 : 2;
-  const halfNew = (localAabb.max[axis] - localAabb.min[axis]) / 2;
-  const centerNew = (localAabb.min[axis] + localAabb.max[axis]) / 2;
-  const pos: Vec3 = [0, 0, 0];
-  pos[axis] = combined.max[axis] + clearance + halfNew - centerNew;
-  // Center the other two axes on the existing stack's centroid.
-  for (const a of [0, 1, 2] as const) {
-    if (a === axis) continue;
-    const c = (combined.min[a] + combined.max[a]) / 2;
-    const localC = (localAabb.min[a] + localAabb.max[a]) / 2;
-    pos[a] = c - localC;
-  }
-  return pos;
 }
 
 export const useStore = create<AppState>((set) => ({
@@ -166,7 +132,9 @@ export const useStore = create<AppState>((set) => ({
   flipImportItem: (id, axis) =>
     set((s) => ({
       items: s.items.map((it) =>
-        it.id === id && it.kind === "import" ? { ...it, mesh: flipImportedMesh(it.mesh, axis) } : it,
+        it.id === id && it.kind === "import"
+          ? { ...it, mesh: flipImportedMesh(it.mesh, axis), meshVersion: it.meshVersion + 1 }
+          : it,
       ),
     })),
   flushItem: (id, face) =>
@@ -300,12 +268,6 @@ export function overlappingItemIds(items: Item[], ratio = 0.1): Set<string> {
     }
   }
   return hit;
-}
-
-/** World-space AABB of an item after rotation + position are applied. */
-export function itemWorldAabb(it: Item) {
-  const local = it.kind === "import" ? it.mesh.aabb : primitiveAabb(it.primitive);
-  return transformedAabb(local, it.rotation, it.position);
 }
 
 export { PRIMITIVE_DEFAULTS };

@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from "react";
-import { itemWorldAabb, overlappingItemIds, useStore } from "../state/store";
+import { stackItemRelativePosition } from "../cad/layout";
+import { overlappingItemIds, useStore } from "../state/store";
 import type { Cutout, EnclosureParams, FaceAxis, Item, Primitive, Vec3 } from "../cad/types";
 import { combineForPrint, downloadStl } from "../io/exporters";
 import { BATTERY_PRESETS, PRIMITIVE_DEFAULTS, primitiveSize } from "../cad/presets";
@@ -251,36 +252,8 @@ function ItemCard({ item, overlapping }: { item: Item; overlapping: boolean }) {
     : primitiveSize(item.primitive);
 
   const stackAlong = (axis: 0 | 1 | 2, sign: 1 | -1) => {
-    // Place this item so its face opposite `axis*sign` touches the aggregated
-    // bounding box of the *other* items on that side (plus clearance).
     const others = items.filter((o) => o.id !== item.id);
-    const mySize = size[axis];
-    const pos: Vec3 = [item.position[0], item.position[1], item.position[2]];
-    if (others.length === 0) {
-      pos[axis] = 0;
-    } else {
-      let extent = -Infinity;
-      if (sign === 1) {
-        for (const o of others) extent = Math.max(extent, itemWorldAabb(o).max[axis]);
-        pos[axis] = extent + params.clearance + mySize / 2;
-      } else {
-        extent = Infinity;
-        for (const o of others) extent = Math.min(extent, itemWorldAabb(o).min[axis]);
-        pos[axis] = extent - params.clearance - mySize / 2;
-      }
-      // Center the non-stack axes so it visually aligns with stack centroid.
-      const centerAxes = [0, 1, 2].filter((a) => a !== axis) as Array<0 | 1 | 2>;
-      for (const a of centerAxes) {
-        let lo = Infinity, hi = -Infinity;
-        for (const o of others) {
-          const ab = itemWorldAabb(o);
-          lo = Math.min(lo, ab.min[a]);
-          hi = Math.max(hi, ab.max[a]);
-        }
-        pos[a] = (lo + hi) / 2;
-      }
-    }
-    setItemPosition(item.id, pos);
+    setItemPosition(item.id, stackItemRelativePosition(item, others, params.clearance, axis, sign));
   };
 
   return (

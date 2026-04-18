@@ -249,7 +249,7 @@ async function generate(req: GenerateRequest): Promise<GenerateResult> {
     if (!it.flushFace) continue;
     const cacheKey = it.kind === "primitive"
       ? `${it.id}|prim|${JSON.stringify(it.primitive)}|${clearance}`
-      : `${it.id}|imp|${clearance}`;
+      : `${it.id}|imp|${it.meshVersion ?? 0}|${clearance}`;
     let entry = itemCache.get(cacheKey);
     if (!entry) {
       const built = buildItemLocal(M, it, clearance);
