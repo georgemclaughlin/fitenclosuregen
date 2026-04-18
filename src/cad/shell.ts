@@ -106,15 +106,16 @@ export function buildEnclosureGeometry(
       grooveZMax,
     ],
   };
+  const snapGrooveOpenInset = snapFit && snapSize > 0 ? 0 : ringCenterOff - gHalf;
   const grooveInner: AABB = {
     min: [
-      inner.min[0] - (ringCenterOff - gHalf),
-      inner.min[1] - (ringCenterOff - gHalf),
+      inner.min[0] - snapGrooveOpenInset,
+      inner.min[1] - snapGrooveOpenInset,
       splitZ - lipTol,
     ],
     max: [
-      inner.max[0] + (ringCenterOff - gHalf),
-      inner.max[1] + (ringCenterOff - gHalf),
+      inner.max[0] + snapGrooveOpenInset,
+      inner.max[1] + snapGrooveOpenInset,
       grooveZMax,
     ],
   };

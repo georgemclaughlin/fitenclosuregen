@@ -67,6 +67,14 @@ describe("buildEnclosureGeometry", () => {
     expect(lowerPocket.min[1] - g.outer.min[1]).toBeGreaterThanOrEqual(0.8 - 1e-9);
   });
 
+  it("snap-fit groove opens directly to the inner cavity", () => {
+    const g = buildEnclosureGeometry(comp, { ...baseParams, snapFit: true });
+    expect(g.grooveInner.min[0]).toBeCloseTo(g.inner.min[0]);
+    expect(g.grooveInner.max[0]).toBeCloseTo(g.inner.max[0]);
+    expect(g.grooveInner.min[1]).toBeCloseTo(g.inner.min[1]);
+    expect(g.grooveInner.max[1]).toBeCloseTo(g.inner.max[1]);
+  });
+
   it("snap-fit produces discrete side tabs and matching lid pockets", () => {
     const g = buildEnclosureGeometry(comp, { ...baseParams, snapFit: true });
     expect(g.snapTabs).toBeDefined();
