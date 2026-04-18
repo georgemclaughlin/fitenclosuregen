@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import { stackItemRelativePosition } from "../cad/layout";
 import { overlappingItemIds, useStore } from "../state/store";
-import type { Cutout, EnclosureParams, FaceAxis, Item, Primitive, Vec3 } from "../cad/types";
+import type { Cutout, EnclosureParams, FaceAxis, Item, Primitive, SnapPlacement, Vec3 } from "../cad/types";
 import { combineForPrint, downloadStl } from "../io/exporters";
 import { BATTERY_PRESETS, PRIMITIVE_DEFAULTS, primitiveSize } from "../cad/presets";
 import { loadComponent } from "../io/loaders";
@@ -24,10 +24,18 @@ const paramDefs: Array<{
   { key: "lidFrac", label: "Lid height (fraction)", min: 0.05, max: 0.6, step: 0.01 },
   { key: "lipDepth", label: "Lip depth (mm)", min: 1.0, max: 8.0, step: 0.1 },
   { key: "lipTol", label: "Lip tolerance (mm)", min: 0.05, max: 0.6, step: 0.01 },
-  { key: "snapSize", label: "Snap bead (mm)", min: 0.1, max: 0.8, step: 0.05 },
+  { key: "snapSize", label: "Snap tab (mm)", min: 0.1, max: 0.8, step: 0.05 },
 ];
 
 const FACES: FaceAxis[] = ["+x", "-x", "+y", "-y", "+z", "-z"];
+const SNAP_PLACEMENTS: Array<{ value: SnapPlacement; label: string }> = [
+  { value: "both-y", label: "Both Y sides" },
+  { value: "both-x", label: "Both X sides" },
+  { value: "+x", label: "+X side" },
+  { value: "-x", label: "-X side" },
+  { value: "+y", label: "+Y side" },
+  { value: "-y", label: "-Y side" },
+];
 
 export function Sidebar() {
   const items = useStore((s) => s.items);
@@ -78,6 +86,20 @@ export function Sidebar() {
           />
         ))}
         <Checkbox label="Snap-fit lid" checked={params.snapFit} onChange={(v) => setParam("snapFit", v)} />
+        {params.snapFit && (
+          <label style={{ fontSize: 12, display: "flex", gap: 6, alignItems: "center" }}>
+            <span style={{ width: 90, color: "#aaa" }}>Snap side</span>
+            <select
+              value={params.snapPlacement}
+              onChange={(e) => setParam("snapPlacement", e.target.value as SnapPlacement)}
+              style={{ ...sel, flex: 1 }}
+            >
+              {SNAP_PLACEMENTS.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+          </label>
+        )}
       </Section>
 
       <Section title="Cutouts">

@@ -23,19 +23,17 @@ export interface EnclosureGeometry {
   grooveInner: AABB;
   grooveZMin: number;
   grooveZMax: number;
-  /** Snap bead ring on the tongue, present only when snapFit is enabled. */
-  snapBeadOuter?: AABB;
-  snapBeadInner?: AABB;
-  /** Matching recess carved from the groove to receive the bead. */
-  snapRecessOuter?: AABB;
-  snapRecessInner?: AABB;
+  /** Discrete snap tabs on the tongue, present only when snapFit is enabled. */
+  snapTabs?: AABB[];
+  /** Matching relief pockets carved from the groove to receive the tabs. */
+  snapPockets?: AABB[];
 }
 
 export function buildEnclosureGeometry(
   comp: AABB,
   p: EnclosureParams,
 ): EnclosureGeometry {
-  const { wall, floor, clearance, lidFrac, lipDepth, lipTol, snapFit, snapSize } = p;
+  const { wall, floor, clearance, lidFrac, lipDepth, lipTol, snapFit, snapSize, snapPlacement } = p;
 
   const inner: AABB = {
     min: [comp.min[0] - clearance, comp.min[1] - clearance, comp.min[2] - clearance],
@@ -69,20 +67,27 @@ export function buildEnclosureGeometry(
     0,
     Math.min(lipDepth, lidHeight - wall - lipTol),
   );
+  const snapMinSkin = snapFit && snapSize > 0 ? Math.max(0.8, wall * 0.4) : 0;
   // When snap-fit is on, shift the tongue/groove ring inboard (toward cavity)
   // to create outboard room for the bead and recess. Without this, on typical
   // 2 mm walls the recess would punch through the outer wall.
-  const ringShift = snapFit && snapSize > 0 ? Math.min(snapSize + lipTol, wall / 4) : 0;
+  const maxRingShift = Math.max(0, wall / 4 + lipTol - 0.05);
+  const ringShift = snapFit && snapSize > 0
+    ? Math.min(snapSize + lipTol + 0.15, maxRingShift)
+    : 0;
   // Distance from inner cavity face to ring centerline.
   const ringCenterOff = wall / 2 - ringShift;
+  // Sink the tongue slightly below the split plane so the exported base is a
+  // single watertight solid instead of two coplanar shells touching at z=splitZ.
+  const tongueFuseDepth = Math.min(0.05, Math.max(0, effectiveLipDepth * 0.1));
 
   const tHalf = wall / 4 - lipTol;
   const tongueOuter: AABB = {
-    min: [inner.min[0] - (ringCenterOff + tHalf), inner.min[1] - (ringCenterOff + tHalf), splitZ],
+    min: [inner.min[0] - (ringCenterOff + tHalf), inner.min[1] - (ringCenterOff + tHalf), splitZ - tongueFuseDepth],
     max: [inner.max[0] + (ringCenterOff + tHalf), inner.max[1] + (ringCenterOff + tHalf), splitZ + effectiveLipDepth],
   };
   const tongueInner: AABB = {
-    min: [inner.min[0] - (ringCenterOff - tHalf), inner.min[1] - (ringCenterOff - tHalf), splitZ],
+    min: [inner.min[0] - (ringCenterOff - tHalf), inner.min[1] - (ringCenterOff - tHalf), splitZ - tongueFuseDepth],
     max: [inner.max[0] + (ringCenterOff - tHalf), inner.max[1] + (ringCenterOff - tHalf), splitZ + effectiveLipDepth],
   };
 
@@ -114,43 +119,84 @@ export function buildEnclosureGeometry(
     ],
   };
 
-  // Snap bead: a thin outward-facing ring at the top of the tongue, plus a
-  // matching recess in the groove. The lid's top plate flexes slightly during
-  // insertion; when the bead clears the narrow groove entry it clicks into the
-  // wider recess and retains the lid.
-  let snapBeadOuter: AABB | undefined;
-  let snapBeadInner: AABB | undefined;
-  let snapRecessOuter: AABB | undefined;
-  let snapRecessInner: AABB | undefined;
+  // Discrete snap tabs on selected side walls are more slicer-friendly than a
+  // continuous annular bead. They avoid leaving a paper-thin inner annulus in
+  // the lid and fit the existing box-based CSG pipeline well.
+  let snapTabs: AABB[] | undefined;
+  let snapPockets: AABB[] | undefined;
   if (snapFit && snapSize > 0 && effectiveLipDepth > 0) {
-    // Available wall room outboard of the groove's outer face before we break
-    // through the outer wall. Leave a minimum skin so the lid doesn't split.
-    const minSkin = 0.4;
-    const grooveOuterToWall = wall - (ringCenterOff + gHalf); // outboard room past groove
-    const maxRecessPad = Math.max(0, grooveOuterToWall - minSkin);
-    const recessPad = Math.min(snapSize + lipTol, maxRecessPad);
-    const effSnapSize = Math.max(0, recessPad - lipTol);
-    const beadH = Math.min(Math.max(0.6, effectiveLipDepth * 0.35), effectiveLipDepth - 0.1);
-    if (beadH > 0 && effSnapSize > 0) {
-      const tongueZMax = splitZ + effectiveLipDepth;
-      const beadZMin = tongueZMax - beadH;
-      const beadZMax = tongueZMax;
-      snapBeadInner = {
-        min: [tongueOuter.min[0], tongueOuter.min[1], beadZMin],
-        max: [tongueOuter.max[0], tongueOuter.max[1], beadZMax],
-      };
-      snapBeadOuter = {
-        min: [tongueOuter.min[0] - effSnapSize, tongueOuter.min[1] - effSnapSize, beadZMin],
-        max: [tongueOuter.max[0] + effSnapSize, tongueOuter.max[1] + effSnapSize, beadZMax],
-      };
-      snapRecessInner = {
-        min: [grooveOuter.min[0], grooveOuter.min[1], beadZMin],
-        max: [grooveOuter.max[0], grooveOuter.max[1], beadZMax + lipTol],
-      };
-      snapRecessOuter = {
-        min: [grooveOuter.min[0] - recessPad, grooveOuter.min[1] - recessPad, beadZMin],
-        max: [grooveOuter.max[0] + recessPad, grooveOuter.max[1] + recessPad, beadZMax + lipTol],
-      };
+    const tabAxis = snapPlacement.endsWith("x") ? 0 : 1;
+    const crossAxis = tabAxis === 0 ? 1 : 0;
+    const placements = snapPlacement.startsWith("both")
+      ? ([1, -1] as Array<1 | -1>)
+      : ([snapPlacement.startsWith("+") ? 1 : -1] as Array<1 | -1>);
+    const positiveTabRoom = outer.max[tabAxis] - tongueOuter.max[tabAxis];
+    const negativeTabRoom = tongueOuter.min[tabAxis] - outer.min[tabAxis];
+    const positivePocketRoom = outer.max[tabAxis] - grooveOuter.max[tabAxis];
+    const negativePocketRoom = grooveOuter.min[tabAxis] - outer.min[tabAxis];
+    const availableTabRoom = Math.min(...placements.map((sign) => sign > 0 ? positiveTabRoom : negativeTabRoom));
+    const availablePocketRoom = Math.min(...placements.map((sign) => sign > 0 ? positivePocketRoom : negativePocketRoom));
+    const tabOutset = Math.min(Math.max(0.3, snapSize), Math.max(0, availableTabRoom - 0.2));
+    const pocketOutset = Math.min(tabOutset + lipTol + 0.15, Math.max(0, availablePocketRoom - snapMinSkin));
+    const tabHeight = Math.min(Math.max(0.9, effectiveLipDepth * 0.45), effectiveLipDepth - 0.1);
+    const tabFuse = Math.min(0.08, tabOutset * 0.4);
+    const tongueZMax = splitZ + effectiveLipDepth;
+    const tabZMin = tongueZMax - tabHeight;
+    const spanCross = tongueOuter.max[crossAxis] - tongueOuter.min[crossAxis];
+    const minTabWidth = 5;
+    const tabWidth = Math.min(Math.max(minTabWidth, spanCross * 0.18), Math.max(minTabWidth, spanCross / 2 - 2.5));
+    const pocketMarginX = Math.max(lipTol + 0.2, 0.35);
+    const crossMid = (tongueOuter.min[crossAxis] + tongueOuter.max[crossAxis]) / 2;
+    const canFitTwo = spanCross >= minTabWidth * 2 + 4;
+    const centerOffset = canFitTwo
+      ? Math.max(
+          tabWidth / 2 + 1.2,
+          Math.min(spanCross * 0.22, spanCross / 2 - tabWidth / 2 - 1.2),
+        )
+      : 0;
+    const tabCenters = canFitTwo ? [crossMid - centerOffset, crossMid + centerOffset] : [crossMid];
+    if (tabOutset > 0.05 && pocketOutset > 0.05 && tabHeight > 0.1) {
+      snapTabs = [];
+      snapPockets = [];
+      for (const sign of placements) {
+        for (const center of tabCenters) {
+          const tabCrossMin = center - tabWidth / 2;
+          const tabCrossMax = center + tabWidth / 2;
+          const pocketCrossMin = Math.max(grooveInner.min[crossAxis] + 0.6, tabCrossMin - pocketMarginX);
+          const pocketCrossMax = Math.min(grooveInner.max[crossAxis] - 0.6, tabCrossMax + pocketMarginX);
+          if (pocketCrossMax <= pocketCrossMin + 4) continue;
+
+          const tabMin = [...tongueOuter.min] as [number, number, number];
+          const tabMax = [...tongueOuter.max] as [number, number, number];
+          tabMin[crossAxis] = tabCrossMin;
+          tabMax[crossAxis] = tabCrossMax;
+          tabMin[2] = tabZMin;
+          tabMax[2] = tongueZMax;
+          if (sign > 0) {
+            tabMin[tabAxis] = tongueOuter.max[tabAxis] - tabFuse;
+            tabMax[tabAxis] = tongueOuter.max[tabAxis] + tabOutset;
+          } else {
+            tabMin[tabAxis] = tongueOuter.min[tabAxis] - tabOutset;
+            tabMax[tabAxis] = tongueOuter.min[tabAxis] + tabFuse;
+          }
+          snapTabs.push({ min: tabMin, max: tabMax });
+
+          const pocketMin = [...grooveOuter.min] as [number, number, number];
+          const pocketMax = [...grooveOuter.max] as [number, number, number];
+          pocketMin[crossAxis] = pocketCrossMin;
+          pocketMax[crossAxis] = pocketCrossMax;
+          pocketMin[2] = tabZMin - lipTol;
+          pocketMax[2] = tongueZMax + lipTol;
+          if (sign > 0) {
+            pocketMin[tabAxis] = grooveOuter.max[tabAxis] - tabFuse;
+            pocketMax[tabAxis] = grooveOuter.max[tabAxis] + pocketOutset;
+          } else {
+            pocketMin[tabAxis] = grooveOuter.min[tabAxis] - pocketOutset;
+            pocketMax[tabAxis] = grooveOuter.min[tabAxis] + tabFuse;
+          }
+          snapPockets.push({ min: pocketMin, max: pocketMax });
+        }
+      }
     }
   }
 
@@ -160,16 +206,14 @@ export function buildEnclosureGeometry(
     splitZ,
     tongueOuter,
     tongueInner,
-    tongueZMin: splitZ,
+    tongueZMin: splitZ - tongueFuseDepth,
     tongueZMax: splitZ + effectiveLipDepth,
     grooveOuter,
     grooveInner,
     grooveZMin: splitZ - lipTol,
     grooveZMax,
-    snapBeadOuter,
-    snapBeadInner,
-    snapRecessOuter,
-    snapRecessInner,
+    snapTabs,
+    snapPockets,
   };
 }
 

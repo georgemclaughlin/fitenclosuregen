@@ -6,7 +6,7 @@ import type { AABB, EnclosureParams } from "./types";
 const baseParams: EnclosureParams = {
   wall: 2, floor: 1.6, clearance: 0.5, fillet: 0,
   lidFrac: 0.25, lipDepth: 3, lipTol: 0.2,
-  snapFit: false, snapSize: 0.3,
+  snapFit: false, snapSize: 0.3, snapPlacement: "both-y",
 };
 
 const comp: AABB = { min: [0, 0, 0], max: [20, 18, 6] };
@@ -55,6 +55,41 @@ describe("buildEnclosureGeometry", () => {
     // the groove slot's opening reaches further toward the cavity than the tongue's inner face
     expect(g.grooveInner.max[0]).toBeLessThan(g.tongueInner.max[0]);
     expect(g.grooveInner.min[0]).toBeGreaterThan(g.tongueInner.min[0]);
+  });
+
+  it("snap-fit keeps a thicker outer skin on the lid pockets", () => {
+    const g = buildEnclosureGeometry(comp, { ...baseParams, snapFit: true });
+    expect(g.snapPockets).toBeDefined();
+    expect(g.snapPockets).toHaveLength(4);
+    const upperPocket = g.snapPockets!.find((p) => p.max[1] > 0)!;
+    const lowerPocket = g.snapPockets!.find((p) => p.min[1] < 0)!;
+    expect(g.outer.max[1] - upperPocket.max[1]).toBeGreaterThanOrEqual(0.8 - 1e-9);
+    expect(lowerPocket.min[1] - g.outer.min[1]).toBeGreaterThanOrEqual(0.8 - 1e-9);
+  });
+
+  it("snap-fit produces discrete side tabs and matching lid pockets", () => {
+    const g = buildEnclosureGeometry(comp, { ...baseParams, snapFit: true });
+    expect(g.snapTabs).toBeDefined();
+    expect(g.snapPockets).toBeDefined();
+    expect(g.snapTabs).toHaveLength(4);
+    expect(g.snapPockets).toHaveLength(4);
+    const upperTab = g.snapTabs!.find((p) => p.max[1] > 0)!;
+    const upperPocket = g.snapPockets!.find((p) => p.max[1] > 0)!;
+    expect(upperTab.min[1]).toBeLessThan(g.tongueOuter.max[1]);
+    expect(upperTab.max[1]).toBeGreaterThan(g.tongueOuter.max[1]);
+    expect(upperPocket.max[1]).toBeGreaterThan(g.grooveOuter.max[1]);
+    expect(upperPocket.max[0] - upperPocket.min[0]).toBeGreaterThan(upperTab.max[0] - upperTab.min[0]);
+    const upperTabs = g.snapTabs!.filter((p) => p.max[1] > 0).sort((a, b) => a.min[0] - b.min[0]);
+    expect(upperTabs).toHaveLength(2);
+    expect(upperTabs[0].max[0]).toBeLessThan(upperTabs[1].min[0]);
+  });
+
+  it("snap placement can target a single X wall", () => {
+    const g = buildEnclosureGeometry(comp, { ...baseParams, snapFit: true, snapPlacement: "+x" });
+    expect(g.snapTabs).toHaveLength(2);
+    expect(g.snapPockets).toHaveLength(2);
+    expect(g.snapTabs![0].max[0]).toBeGreaterThan(g.tongueOuter.max[0]);
+    expect(g.snapPockets![0].max[0]).toBeGreaterThan(g.grooveOuter.max[0]);
   });
 });
 

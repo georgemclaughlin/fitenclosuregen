@@ -743,11 +743,8 @@ export async function generate(req: GenerateRequest): Promise<GenerateResult> {
     const to = boxFromAabb(Manifold, geom.tongueOuter);
     const ti = boxFromAabb(Manifold, geom.tongueInner);
     let ring = to.subtract(ti);
-    if (geom.snapBeadOuter && geom.snapBeadInner
-        && isPositive(geom.snapBeadOuter) && isPositive(geom.snapBeadInner)) {
-      const bo = boxFromAabb(Manifold, geom.snapBeadOuter);
-      const bi = boxFromAabb(Manifold, geom.snapBeadInner);
-      ring = Manifold.union([ring, bo.subtract(bi)]);
+    if (geom.snapTabs && geom.snapTabs.length > 0) {
+      ring = Manifold.union([ring, ...geom.snapTabs.filter(isPositive).map((tab) => boxFromAabb(Manifold, tab))]);
     }
     if (cutoutHull) ring = ring.subtract(cutoutHull);
     for (const c of cutouts) {
@@ -761,11 +758,8 @@ export async function generate(req: GenerateRequest): Promise<GenerateResult> {
     const go = boxFromAabb(Manifold, geom.grooveOuter);
     const gi = boxFromAabb(Manifold, geom.grooveInner);
     let groove = go.subtract(gi);
-    if (geom.snapRecessOuter && geom.snapRecessInner
-        && isPositive(geom.snapRecessOuter) && isPositive(geom.snapRecessInner)) {
-      const ro = boxFromAabb(Manifold, geom.snapRecessOuter);
-      const ri = boxFromAabb(Manifold, geom.snapRecessInner);
-      groove = Manifold.union([groove, ro.subtract(ri)]);
+    if (geom.snapPockets && geom.snapPockets.length > 0) {
+      groove = Manifold.union([groove, ...geom.snapPockets.filter(isPositive).map((tab) => boxFromAabb(Manifold, tab))]);
     }
     lid = lid.subtract(groove);
   }

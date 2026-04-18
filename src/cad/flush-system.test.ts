@@ -17,7 +17,7 @@ import type { AABB, EnclosureParams, Vec3 } from "./types";
 const params: EnclosureParams = {
   wall: 2, floor: 1.6, clearance: 0.5, fillet: 0,
   lidFrac: 0.25, lipDepth: 3, lipTol: 0.2,
-  snapFit: false, snapSize: 0.3,
+  snapFit: false, snapSize: 0.3, snapPlacement: "both-y",
 };
 
 // A 20×10×6 box centered at origin.

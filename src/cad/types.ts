@@ -5,6 +5,8 @@ export interface AABB {
   max: Vec3;
 }
 
+export type SnapPlacement = "both-y" | "both-x" | "+x" | "-x" | "+y" | "-y";
+
 export interface EnclosureParams {
   /** Wall thickness on sides and lid (mm). */
   wall: number;
@@ -20,11 +22,13 @@ export interface EnclosureParams {
   lipDepth: number;
   /** Print-fit clearance between tongue and groove (mm, per side). */
   lipTol: number;
-  /** When true, add a small bead near the tip of the tongue and a matching
-   *  recess in the groove so the lid clicks into place. */
+  /** When true, add discrete snap tabs on the tongue and matching relief
+   *  pockets in the groove so the lid clicks into place. */
   snapFit: boolean;
-  /** Radial protrusion of the snap bead (mm). */
+  /** Outward protrusion of each snap tab (mm). */
   snapSize: number;
+  /** Which wall or wall pair receives the snap tabs. */
+  snapPlacement: SnapPlacement;
 }
 
 export const defaultParams: EnclosureParams = {
@@ -37,6 +41,7 @@ export const defaultParams: EnclosureParams = {
   lipTol: 0.2,
   snapFit: false,
   snapSize: 0.3,
+  snapPlacement: "both-y",
 };
 
 export type FaceAxis = "+x" | "-x" | "+y" | "-y" | "+z" | "-z";

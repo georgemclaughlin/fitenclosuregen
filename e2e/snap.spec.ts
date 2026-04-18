@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { findFixture } from "./fixtures";
 
-test("snap-fit bead and recess are visible", async ({ page }) => {
+test("snap-fit tabs and pockets are visible", async ({ page }) => {
   const fixture = findFixture("step");
   test.skip(!fixture, "no step fixture");
 
@@ -28,7 +28,7 @@ test("snap-fit bead and recess are visible", async ({ page }) => {
     await page.mouse.up();
   }
 
-  // Base only, tilted so we see the tongue top + bead ring.
+  // Base only, tilted so we see the tongue top + snap tabs.
   await page.getByRole("checkbox", { name: "Lid", exact: true }).uncheck();
   await page.getByRole("checkbox", { name: "Base", exact: true }).check();
   await orbit(0, -150);
@@ -37,7 +37,7 @@ test("snap-fit bead and recess are visible", async ({ page }) => {
   await page.waitForTimeout(400);
   await canvas.screenshot({ path: "e2e/screenshots/snap-01-base-tongue.png" });
 
-  // Lid only, flipped to see the groove + recess.
+  // Lid only, flipped to see the groove + snap pockets.
   await page.getByRole("checkbox", { name: "Base", exact: true }).uncheck();
   await page.getByRole("checkbox", { name: "Lid", exact: true }).check();
   await orbit(0, -400);

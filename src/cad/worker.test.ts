@@ -4,6 +4,7 @@ import { computeCombinedAabbWithFlush } from "./flush";
 import { countTrianglesOverlappingAabb } from "./mesh-inspect";
 import { primitiveAabb } from "./presets";
 import { buildEnclosureGeometry } from "./shell";
+import { connectedComponents } from "./parts";
 import type { AABB, EnclosureParams, ItemRequest, MeshData, Primitive, Vec3 } from "./types";
 import { computeHeightfieldColumns, generate } from "./worker";
 
@@ -17,6 +18,7 @@ const params: EnclosureParams = {
   lipTol: 0.2,
   snapFit: false,
   snapSize: 0.3,
+  snapPlacement: "both-y",
 };
 
 function makePrimitiveRequest(
@@ -337,5 +339,27 @@ describe("generate flushed cutouts", () => {
     expect(countTrianglesOverlappingAabb(result.base, leftLegSlot)).toBe(0);
     expect(countTrianglesOverlappingAabb(result.base, rightLegSlot)).toBe(0);
     expect(countTrianglesOverlappingAabb(result.base, portCorridor)).toBe(0);
+  });
+
+  it("exports the base as a single connected solid with and without snap-fit", async () => {
+    const primitive: Primitive = { kind: "box", size: [20, 20, 10] };
+    for (const snapFit of [false, true]) {
+      const result = await generate({
+        items: [{
+          id: `box-${snapFit ? "snap" : "plain"}`,
+          kind: "primitive",
+          primitive,
+          aabb: primitiveAabb(primitive),
+          position: [0, 0, 0],
+          rotation: [0, 0, 0],
+          flushFace: null,
+        }],
+        params: { ...params, snapFit },
+        cutouts: [],
+      });
+
+      expect(connectedComponents(result.base.positions, result.base.indices).length).toBe(1);
+      expect(connectedComponents(result.lid.positions, result.lid.indices).length).toBe(1);
+    }
   });
 });
