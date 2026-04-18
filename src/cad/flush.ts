@@ -82,3 +82,54 @@ export function computeCavityPocket(
   }
   return { min, max };
 }
+
+export function horizontalOverlap(a: AABB, b: AABB): boolean {
+  return (
+    Math.min(a.max[0], b.max[0]) > Math.max(a.min[0], b.min[0]) &&
+    Math.min(a.max[1], b.max[1]) > Math.max(a.min[1], b.min[1])
+  );
+}
+
+/**
+ * Compute an access pocket that keeps the region above a lower supporting item
+ * open up to the split plane for stacked assemblies.
+ */
+export function computeAccessPocket(
+  itemAabb: AABB,
+  clearance: number,
+  splitZ: number,
+  flushFace: FaceAxis | null | undefined,
+  inner: AABB,
+  zMin: number,
+): AABB {
+  const c = clearance;
+  const min: Vec3 = [itemAabb.min[0] - c, itemAabb.min[1] - c, zMin];
+  const max: Vec3 = [itemAabb.max[0] + c, itemAabb.max[1] + c, splitZ];
+  if (flushFace) {
+    const fAxis = faceAxisNum(flushFace);
+    min[fAxis] = inner.min[fAxis];
+    max[fAxis] = inner.max[fAxis];
+  }
+  return { min, max };
+}
+
+/**
+ * Compute a narrow access pocket for a flushed wall opening so the split-plane
+ * band stays open only around the actual cutout, not the item's full footprint.
+ */
+export function computeFlushAccessPocket(
+  cutoutAabb: AABB,
+  clearance: number,
+  splitZ: number,
+  inner: AABB,
+): AABB | null {
+  const min: Vec3 = [...cutoutAabb.min];
+  const max: Vec3 = [...cutoutAabb.max];
+  for (let a = 0; a < 3; a++) {
+    min[a] = Math.max(inner.min[a], cutoutAabb.min[a] - clearance);
+    max[a] = Math.min(inner.max[a], cutoutAabb.max[a] + clearance);
+  }
+  max[2] = Math.min(max[2], splitZ);
+  if (max[2] <= min[2]) return null;
+  return { min, max };
+}

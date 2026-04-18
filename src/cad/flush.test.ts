@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { computeCombinedAabbWithFlush, computeCavityPocket } from "./flush";
+import {
+  computeAccessPocket,
+  computeCombinedAabbWithFlush,
+  computeCavityPocket,
+  computeFlushAccessPocket,
+  horizontalOverlap,
+} from "./flush";
 import type { AABB, Vec3 } from "./types";
 
 function item(
@@ -152,5 +158,58 @@ describe("computeCavityPocket", () => {
     const shiftedItem: AABB = { min: [3, -5, -5], max: [13, 5, 5] };
     const pFlush = computeCavityPocket(shiftedItem, clearance, splitZ, "+x", inner);
     expect(pFlush.min[0]).toBeCloseTo(inner.min[0]);
+  });
+});
+
+describe("computeAccessPocket", () => {
+  const inner: AABB = { min: [-8, -8, -8], max: [8, 8, 8] };
+
+  it("keeps stacked item footprint open from support height to split plane", () => {
+    const itemAabb: AABB = { min: [-5, -4, 8], max: [5, 4, 10] };
+    const p = computeAccessPocket(itemAabb, 0.5, 12, null, inner, 3.5);
+    expect(p.min).toEqual([-5.5, -4.5, 3.5]);
+    expect(p.max).toEqual([5.5, 4.5, 12]);
+  });
+
+  it("spans full inner box on the flushed axis", () => {
+    const itemAabb: AABB = { min: [0, -4, 8], max: [10, 4, 10] };
+    const p = computeAccessPocket(itemAabb, 0.5, 12, "+x", inner, 3.5);
+    expect(p.min[0]).toBe(inner.min[0]);
+    expect(p.max[0]).toBe(inner.max[0]);
+    expect(p.min[2]).toBe(3.5);
+  });
+});
+
+describe("computeFlushAccessPocket", () => {
+  const inner: AABB = { min: [-8, -8, -8], max: [8, 8, 8] };
+
+  it("keeps the corridor limited to the cutout footprint on non-flush axes", () => {
+    const cutoutAabb: AABB = { min: [6.2, -1.2, 1.8], max: [9.0, 1.2, 4.6] };
+    const p = computeFlushAccessPocket(cutoutAabb, 0.5, 6, inner);
+    expect(p).toEqual({
+      min: [5.7, -1.7, 1.3],
+      max: [inner.max[0], 1.7, 5.1],
+    });
+  });
+
+  it("returns null when the cutout sits entirely above the split plane", () => {
+    const cutoutAabb: AABB = { min: [6.2, -1.2, 7.0], max: [9.0, 1.2, 8.0] };
+    expect(computeFlushAccessPocket(cutoutAabb, 0.5, 6, inner)).toBeNull();
+  });
+});
+
+describe("horizontalOverlap", () => {
+  it("returns true for overlapping XY footprints", () => {
+    expect(horizontalOverlap(
+      { min: [-1, -1, 0], max: [1, 1, 1] },
+      { min: [0, 0, 2], max: [2, 2, 3] },
+    )).toBe(true);
+  });
+
+  it("returns false when XY footprints only touch at an edge", () => {
+    expect(horizontalOverlap(
+      { min: [-1, -1, 0], max: [1, 1, 1] },
+      { min: [1, -1, 2], max: [2, 1, 3] },
+    )).toBe(false);
   });
 });

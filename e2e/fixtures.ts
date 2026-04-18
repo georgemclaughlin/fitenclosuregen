@@ -9,6 +9,7 @@ import path from "node:path";
 const CANDIDATES: Record<string, string[]> = {
   step: [
     path.join(homedir(), "Downloads/T-Display.step"),
+    path.join(homedir(), "Downloads/ttgo-t-display-2.snapshot.4/ttgo-t-display.step"),
     path.join(homedir(), "Downloads/seeed-studio-xiao-nrf52840-3d-model/XIAO-nRF52840 v15.step"),
     path.join(homedir(), "Downloads/t-display-s3-full.stp"),
   ],
