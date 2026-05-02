@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { buildEnclosureGeometry, cutoutBox, faceFrame } from "./shell";
 import { computeAabb, expandAabb } from "./bbox";
-import type { AABB, EnclosureParams } from "./types";
+import { defaultParams, type AABB, type EnclosureParams } from "./types";
 
 const baseParams: EnclosureParams = {
   wall: 2, floor: 1.6, clearance: 0.5, fillet: 0,
@@ -12,19 +12,25 @@ const baseParams: EnclosureParams = {
 const comp: AABB = { min: [0, 0, 0], max: [20, 18, 6] };
 
 describe("buildEnclosureGeometry", () => {
+  it("uses moderately loose printable defaults", () => {
+    expect(defaultParams.clearance).toBeCloseTo(0.8);
+    expect(defaultParams.lipTol).toBeCloseTo(0.3);
+  });
+
   it("inner wraps component with clearance on all sides", () => {
     const g = buildEnclosureGeometry(comp, baseParams);
     expect(g.inner.min).toEqual([-0.5, -0.5, -0.5]);
     expect(g.inner.max).toEqual([20.5, 18.5, 6.5]);
   });
 
-  it("outer adds wall on sides, floor below, wall above", () => {
+  it("outer adds walls and grows upward so the base split clears the inner cavity", () => {
     const g = buildEnclosureGeometry(comp, baseParams);
     expect(g.outer.min[0]).toBeCloseTo(-2.5);
     expect(g.outer.min[1]).toBeCloseTo(-2.5);
     expect(g.outer.min[2]).toBeCloseTo(-2.1); // -0.5 - 1.6 floor
     expect(g.outer.max[0]).toBeCloseTo(22.5);
-    expect(g.outer.max[2]).toBeCloseTo(8.5);  // 6.5 + 2 wall
+    expect(g.splitZ).toBeGreaterThanOrEqual(g.inner.max[2]);
+    expect(g.outer.max[2]).toBeGreaterThanOrEqual(g.splitZ + baseParams.wall);
   });
 
   it("splitZ leaves enough lid height for the lip, growing past lidFrac if needed", () => {
@@ -34,11 +40,10 @@ describe("buildEnclosureGeometry", () => {
     expect(lidHeight).toBeGreaterThanOrEqual(baseParams.wall + baseParams.lipDepth + baseParams.lipTol - 1e-9);
   });
 
-  it("splitZ honors lidFrac when the requested lid is already tall enough", () => {
+  it("splitZ does not cut through the inner cavity even when lidFrac would", () => {
     const tallComp: AABB = { min: [0, 0, 0], max: [20, 18, 60] };
     const g = buildEnclosureGeometry(tallComp, baseParams);
-    const outerH = g.outer.max[2] - g.outer.min[2];
-    expect(g.splitZ).toBeCloseTo(g.outer.max[2] - 0.25 * outerH);
+    expect(g.splitZ).toBeGreaterThanOrEqual(g.inner.max[2]);
   });
 
   it("tongueOuter is larger than tongueInner (valid ring)", () => {

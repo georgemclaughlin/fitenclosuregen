@@ -55,7 +55,7 @@ test("flush button moves item position", async ({ page }) => {
   await expect(page.getByText(/^Ready\.$/)).toBeVisible({ timeout: 30_000 });
 
   // Read original x position.
-  const xInput = page.locator('label').filter({ hasText: /^x$/ }).locator('input[type="number"]');
+  const xInput = page.locator('input[aria-label="x"]').first();
   const origX = await xInput.inputValue();
 
   // Flush to +x.

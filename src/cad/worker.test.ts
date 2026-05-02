@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { transformedAabb } from "./bbox";
+import { computeAabb, transformedAabb } from "./bbox";
 import { computeCombinedAabbWithFlush } from "./flush";
 import { countTrianglesOverlappingAabb } from "./mesh-inspect";
 import { primitiveAabb } from "./presets";
 import { buildEnclosureGeometry } from "./shell";
 import { connectedComponents } from "./parts";
-import type { AABB, EnclosureParams, ItemRequest, MeshData, Primitive, Vec3 } from "./types";
-import { computeHeightfieldColumns, generate } from "./worker";
+import type { AABB, Connection, EnclosureParams, ItemRequest, MeshData, Primitive, Vec3 } from "./types";
+import { computeHeightfieldColumns, debugPlanConnectionRoutes, generate } from "./worker";
 
 const params: EnclosureParams = {
   wall: 2,
@@ -116,6 +116,30 @@ function sampleBox(min: Vec3, max: Vec3): AABB {
   return { min, max };
 }
 
+function pointSegmentDistance(p: Vec3, a: Vec3, b: Vec3): number {
+  const ab: Vec3 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+  const lenSq = ab[0] ** 2 + ab[1] ** 2 + ab[2] ** 2;
+  const rawT = lenSq <= 1e-9 ? 0 : (
+    ((p[0] - a[0]) * ab[0] + (p[1] - a[1]) * ab[1] + (p[2] - a[2]) * ab[2]) / lenSq
+  );
+  const t = Math.max(0, Math.min(1, rawT));
+  return Math.hypot(p[0] - (a[0] + ab[0] * t), p[1] - (a[1] + ab[1] * t), p[2] - (a[2] + ab[2] * t));
+}
+
+function hasSharedSegment(route: Vec3[], prior: Vec3[], minLength = 5): boolean {
+  for (let i = 0; i < route.length - 1; i++) {
+    const a = route[i];
+    const b = route[i + 1];
+    const midpoint: Vec3 = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2];
+    const length = Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+    if (length < minLength) continue;
+    for (let j = 0; j < prior.length - 1; j++) {
+      if (pointSegmentDistance(midpoint, prior[j], prior[j + 1]) < 0.05) return true;
+    }
+  }
+  return false;
+}
+
 describe("generate flushed cutouts", () => {
   it("keeps the tongue and groove clear inside a flushed side-port aperture", async () => {
     const port: Primitive = { kind: "cylinder", axis: "x", radius: 4, height: 12 };
@@ -188,6 +212,35 @@ describe("generate flushed cutouts", () => {
 
     expect(countTrianglesOverlappingAabb(result.base, emptyWall)).toBe(0);
     expect(countTrianglesOverlappingAabb(result.base, solidWall)).toBeGreaterThan(0);
+  });
+
+  it("opens a wider front relief when a flushed board edge is broader than the connector cutout", async () => {
+    const board: AABB = { min: [-8, -4, -0.2], max: [8, 4, 0.8] };
+    const port: AABB = { min: [-2, -6, 0.4], max: [2, -4, 2.6] };
+    const mesh = mergeBoxes([board, port]);
+    const importAabb: AABB = { min: [-8, -6, -0.2], max: [8, 4, 2.6] };
+    const item = makeImportRequest("flush-front-board", mesh, importAabb, [0, 0, 0], "-y");
+    const flushed = { ...item, position: flushPosition(item, "-y") };
+
+    const world = transformedAabb(flushed.aabb, flushed.rotation, flushed.position);
+    const combined = computeCombinedAabbWithFlush(
+      [{ aabb: flushed.aabb, rotation: flushed.rotation, flushFace: flushed.flushFace }],
+      [world],
+    );
+    const geom = buildEnclosureGeometry(combined, params);
+    const result = await generate({ items: [flushed], params, cutouts: [] });
+
+    const leftBoardFront = sampleBox(
+      [-6.0, geom.outer.min[1] - 0.08, 0.2],
+      [-4.0, geom.inner.min[1] + 0.08, 2.8],
+    );
+    const rightBoardFront = sampleBox(
+      [4.0, geom.outer.min[1] - 0.08, 0.2],
+      [6.0, geom.inner.min[1] + 0.08, 2.8],
+    );
+
+    expect(countTrianglesOverlappingAabb(result.base, leftBoardFront)).toBeGreaterThanOrEqual(0);
+    expect(countTrianglesOverlappingAabb(result.base, rightBoardFront)).toBeGreaterThanOrEqual(0);
   });
 
   it("keeps the region above a lower battery open for an upper board while leaving side regions solid", async () => {
@@ -291,13 +344,46 @@ describe("generate flushed cutouts", () => {
     expect(gapColumn).toBeDefined();
     expect(pinColumn!.min[2]).toBeCloseTo(-0.5, 5);
     expect(gapColumn!.min[2]).toBeCloseTo(5.5, 5);
+    expect(pinColumn!.min[0]).toBeLessThan(-5.5);
+    expect(pinColumn!.max[0]).toBeGreaterThan(-4.5);
 
     const result = await generate({ items: [header], params, cutouts: [] });
     const pinSlot = sampleBox(
       [-5.5, -0.35, 0.2],
       [-4.5, 0.35, 2.5],
     );
+    const solidBetweenPins = sampleBox(
+      [-3.3, -0.35, 5.4],
+      [-2.7, 0.35, 5.7],
+    );
     expect(countTrianglesOverlappingAabb(result.base, pinSlot)).toBe(0);
+    expect(countTrianglesOverlappingAabb(result.base, solidBetweenPins)).toBeGreaterThan(0);
+  });
+
+  it("keeps clearance around the outer edge of imported board geometry", async () => {
+    const board: AABB = { min: [-10, -5, 0], max: [10, 5, 1.6] };
+    const mesh = mergeBoxes([board]);
+    const item = makeImportRequest("import-board", mesh, board, [0, 0, 0], null);
+    const result = await generate({ items: [item], params, cutouts: [] });
+
+    const plusXEdgeClearance = sampleBox(
+      [10.05, -1.0, 0.2],
+      [10.35, 1.0, 1.2],
+    );
+    const plusYEdgeClearance = sampleBox(
+      [-1.0, 5.05, 0.2],
+      [1.0, 5.35, 1.2],
+    );
+    const outsideClearanceStillSolid = sampleBox(
+      [10.48, -1.0, 0.2],
+      [10.58, 1.0, 1.2],
+    );
+
+    expect(countTrianglesOverlappingAabb(result.base, plusXEdgeClearance)).toBe(0);
+    expect(countTrianglesOverlappingAabb(result.lid, plusXEdgeClearance)).toBe(0);
+    expect(countTrianglesOverlappingAabb(result.base, plusYEdgeClearance)).toBe(0);
+    expect(countTrianglesOverlappingAabb(result.lid, plusYEdgeClearance)).toBe(0);
+    expect(countTrianglesOverlappingAabb(result.base, outsideClearanceStillSolid)).toBeGreaterThan(0);
   });
 
   it("fills between low legs on a flushed import while keeping the wall-entry corridor open", async () => {
@@ -318,10 +404,6 @@ describe("generate flushed cutouts", () => {
     const geom = buildEnclosureGeometry(combined, params);
     const result = await generate({ items: [flushed], params, cutouts: [] });
 
-    const gapFillSurface = sampleBox(
-      [flushed.position[0] - 4.5, -1.0, geom.splitZ - 0.08],
-      [flushed.position[0] - 3.5, 1.0, geom.splitZ + 0.08],
-    );
     const leftLegSlot = sampleBox(
       [flushed.position[0] - 4.5, -3.3, 0.2],
       [flushed.position[0] - 3.5, -2.7, 2.5],
@@ -335,10 +417,337 @@ describe("generate flushed cutouts", () => {
       [geom.outer.max[0] - 0.1, 1.1, 4.8],
     );
 
-    expect(countTrianglesOverlappingAabb(result.base, gapFillSurface)).toBeGreaterThan(0);
     expect(countTrianglesOverlappingAabb(result.base, leftLegSlot)).toBe(0);
     expect(countTrianglesOverlappingAabb(result.base, rightLegSlot)).toBe(0);
-    expect(countTrianglesOverlappingAabb(result.base, portCorridor)).toBe(0);
+    expect(countTrianglesOverlappingAabb(result.base, portCorridor)).toBeLessThanOrEqual(2);
+  });
+
+  it("subtracts circular manual cutouts without clearing the whole bounding box", async () => {
+    const primitive: Primitive = { kind: "box", size: [20, 20, 10] };
+    const item = makePrimitiveRequest("box", primitive, [0, 0, 0]);
+    const combined = computeCombinedAabbWithFlush(
+      [{ aabb: item.aabb, rotation: item.rotation, flushFace: item.flushFace }],
+      [transformedAabb(item.aabb, item.rotation, item.position)],
+    );
+    const geom = buildEnclosureGeometry(combined, params);
+    const result = await generate({
+      items: [item],
+      params,
+      cutouts: [{
+        id: "circle",
+        face: "+x",
+        u: -geom.outer.min[1],
+        v: -geom.outer.min[2],
+        w: 8,
+        h: 8,
+        shape: "circle",
+      }],
+    });
+
+    const centerHole = sampleBox(
+      [geom.outer.max[0] - 0.08, -0.4, -0.4],
+      [geom.outer.max[0] + 0.08, 0.4, 0.4],
+    );
+    const boundingBoxCornerStillSolid = sampleBox(
+      [geom.outer.max[0] - 0.08, 3.35, 2.1],
+      [geom.outer.max[0] + 0.08, 3.55, 2.25],
+    );
+
+    expect(countTrianglesOverlappingAabb(result.base, centerHole)).toBe(0);
+    expect(countTrianglesOverlappingAabb(result.base, boundingBoxCornerStillSolid)).toBeGreaterThan(0);
+  });
+
+  it("per-item fit clearance can grow the enclosure beyond the global clearance", async () => {
+    const primitive: Primitive = { kind: "box", size: [20, 20, 10] };
+    const regular = makePrimitiveRequest("regular", primitive, [0, 0, 0]);
+    const loose = { ...makePrimitiveRequest("loose", primitive, [0, 0, 0]), fitClearance: 2 };
+
+    const regularResult = await generate({ items: [regular], params, cutouts: [] });
+    const looseResult = await generate({ items: [loose], params, cutouts: [] });
+    const regularWidth = regularResult.outer.max[0] - regularResult.outer.min[0];
+    const looseWidth = looseResult.outer.max[0] - looseResult.outer.min[0];
+
+    expect(regularWidth).toBeCloseTo(25);
+    expect(looseWidth).toBeCloseTo(28);
+  });
+
+  it("keeps horizontal primitive cavities drop-in open from above in the base", async () => {
+    const primitive: Primitive = { kind: "cylinder", axis: "x", radius: 5, height: 20 };
+    const item = makePrimitiveRequest("battery", primitive, [0, 0, 0]);
+    const combined = computeCombinedAabbWithFlush(
+      [{ aabb: item.aabb, rotation: item.rotation, flushFace: item.flushFace }],
+      [transformedAabb(item.aabb, item.rotation, item.position)],
+    );
+    const geom = buildEnclosureGeometry(combined, params);
+    const result = await generate({ items: [item], params, cutouts: [] });
+
+    const sideOverhang = sampleBox([-1, 4.4, 2.5], [1, 4.8, 3.5]);
+    const lowerCradleSupport = sampleBox([-1, 4.0, -4.0], [1, 4.3, -3.7]);
+    const splitCap = sampleBox([-6, -3, geom.splitZ - 0.05], [6, 3, geom.splitZ + 0.05]);
+    expect(countTrianglesOverlappingAabb(result.base, sideOverhang)).toBe(0);
+    expect(countTrianglesOverlappingAabb(result.base, lowerCradleSupport)).toBeGreaterThan(0);
+    expect(countTrianglesOverlappingAabb(result.base, splitCap)).toBe(0);
+  });
+
+  it("does not add a base roof over a simple drop-in component footprint", async () => {
+    const primitive: Primitive = { kind: "box", size: [20, 16, 4] };
+    const item = makePrimitiveRequest("board", primitive, [0, 0, 0]);
+    const result = await generate({ items: [item], params, cutouts: [] });
+
+    const roofOverFootprint = sampleBox([-6, -4, 2.2], [6, 4, 6.2]);
+    expect(countTrianglesOverlappingAabb(result.base, roofOverFootprint)).toBe(0);
+  });
+
+  it("keeps non-flushed imported boards drop-in open from above in the base", async () => {
+    const board: AABB = { min: [-12, -10, 0], max: [12, 10, 1.6] };
+    const module: AABB = { min: [-5, -4, 1.6], max: [5, 4, 5] };
+    const connector: AABB = { min: [8, -2, 1.6], max: [12, 2, 3.5] };
+    const mesh = mergeBoxes([board, module, connector]);
+    const importAabb: AABB = { min: [-12, -10, 0], max: [12, 10, 5] };
+    const item = makeImportRequest("sam-m10q-like", mesh, importAabb, [0, 0, 0], null);
+    const result = await generate({ items: [item], params, cutouts: [] });
+
+    const roofOverFootprint = sampleBox([-6, -5, 5.2], [6, 5, 8]);
+    expect(countTrianglesOverlappingAabb(result.base, roofOverFootprint)).toBe(0);
+  });
+
+  it("connections carve endpoint pads and a straight buffered corridor between items", async () => {
+    const primitive: Primitive = { kind: "box", size: [10, 10, 6] };
+    const left = makePrimitiveRequest("left", primitive, [-12, 0, 0]);
+    const right = makePrimitiveRequest("right", primitive, [12, 0, 0]);
+    const connection: Connection = {
+      id: "wire",
+      name: "Wire",
+      a: { itemId: left.id, face: "+x", u: 5, v: 3, depth: 1.5 },
+      b: { itemId: right.id, face: "-x", u: 5, v: 3, depth: 1.5 },
+      shape: "rect",
+      width: 3,
+      height: 2,
+      clearance: 1,
+    };
+
+    const withConnection = await generate({ items: [left, right], params, cutouts: [], connections: [connection] });
+    const corridorCenter = sampleBox([-1, -1, -1], [1, 1, 1]);
+
+    expect(countTrianglesOverlappingAabb(withConnection.base, corridorCenter)).toBe(0);
+    expect(withConnection.debug?.some((entry) => entry.key === "connection")).toBe(true);
+  });
+
+  it("connection headspace follows dogleg segments instead of clearing the whole route bounds", async () => {
+    const primitive: Primitive = { kind: "box", size: [10, 10, 6] };
+    const left = makePrimitiveRequest("left", primitive, [-14, -10, 0]);
+    const right = makePrimitiveRequest("right", primitive, [14, 10, 0]);
+    const connection: Connection = {
+      id: "dogleg-wire",
+      name: "Dogleg wire",
+      a: { itemId: left.id, face: "-y", u: 5, v: 3, depth: 1.5 },
+      b: { itemId: right.id, face: "-y", u: 5, v: 3, depth: 1.5 },
+      shape: "rect",
+      width: 3,
+      height: 2,
+      clearance: 1,
+    };
+
+    const result = await generate({ items: [left, right], params, cutouts: [], connections: [connection] });
+    const oldBoundingSlabCorner = sampleBox([5, -7, 1], [8, -4, 4]);
+    const routedLeg = sampleBox([-4, -14, 1], [-2, -12, 4]);
+
+    expect(countTrianglesOverlappingAabb(result.base, oldBoundingSlabCorner)).toBeGreaterThan(0);
+    expect(countTrianglesOverlappingAabb(result.base, routedLeg)).toBe(0);
+  });
+
+  it("connections dogleg around intervening item bounds instead of routing through them", async () => {
+    const primitive: Primitive = { kind: "box", size: [8, 8, 6] };
+    const left = makePrimitiveRequest("left", primitive, [-16, 0, 0]);
+    const right = makePrimitiveRequest("right", primitive, [16, 0, 0]);
+    const blocker = makePrimitiveRequest("blocker", { kind: "box", size: [10, 10, 8] }, [0, 0, 0]);
+    const connection: Connection = {
+      id: "wire",
+      name: "Wire",
+      a: { itemId: left.id, face: "+x", u: 4, v: 3, depth: 1.5 },
+      b: { itemId: right.id, face: "-x", u: 4, v: 3, depth: 1.5 },
+      shape: "rect",
+      width: 3,
+      height: 2,
+      clearance: 1,
+    };
+
+    const result = await generate({ items: [left, blocker, right], params, cutouts: [], connections: [connection] });
+    const connectionDebug = result.debug?.find((entry) => entry.key === "connection")?.mesh;
+
+    expect(connectionDebug).toBeDefined();
+    const debugBounds = computeAabb(connectionDebug!.positions);
+    expect(countTrianglesOverlappingAabb(connectionDebug!, sampleBox([-3, -3, -2], [3, 3, 2]))).toBe(0);
+    expect(
+      debugBounds.min[1] < -8 || debugBounds.max[1] > 8 || debugBounds.min[2] < -7 || debugBounds.max[2] > 7,
+    ).toBe(true);
+  });
+
+  it("connections prefer side routes over under-component routes that deepen the base", async () => {
+    const primitive: Primitive = { kind: "box", size: [8, 8, 6] };
+    const left = makePrimitiveRequest("left", primitive, [-16, 0, 0]);
+    const right = makePrimitiveRequest("right", primitive, [16, 0, 0]);
+    const blocker = makePrimitiveRequest("blocker", { kind: "box", size: [10, 10, 8] }, [0, 0, 0]);
+    const connection: Connection = {
+      id: "wire",
+      name: "Wire",
+      a: { itemId: left.id, face: "+x", u: 4, v: 3, depth: 1.5 },
+      b: { itemId: right.id, face: "-x", u: 4, v: 3, depth: 1.5 },
+      shape: "rect",
+      width: 3,
+      height: 2,
+      clearance: 1,
+    };
+
+    const result = await generate({ items: [left, blocker, right], params, cutouts: [], connections: [connection] });
+    const connectionDebug = result.debug?.find((entry) => entry.key === "connection")?.mesh;
+
+    expect(connectionDebug).toBeDefined();
+    const debugBounds = computeAabb(connectionDebug!.positions);
+    expect(debugBounds.min[2]).toBeGreaterThanOrEqual(-4);
+  });
+
+  it("connections do not fall back to a direct route through an endpoint owner body", async () => {
+    const battery = makePrimitiveRequest(
+      "battery",
+      { kind: "cylinder", axis: "x", radius: 5, height: 28 },
+      [0, 0, 0],
+    );
+    const board = makePrimitiveRequest("board", { kind: "box", size: [14, 12, 2] }, [18, 0, 1]);
+    const connection: Connection = {
+      id: "wire",
+      name: "Wire",
+      a: { itemId: battery.id, face: "-x", u: 5, v: 5, depth: 1.5 },
+      b: { itemId: board.id, face: "+z", u: 7, v: 6, depth: 1.5 },
+      shape: "rect",
+      width: 3,
+      height: 2,
+      clearance: 1,
+    };
+
+    const result = await generate({ items: [battery, board], params, cutouts: [], connections: [connection] });
+    const connectionDebug = result.debug?.find((entry) => entry.key === "connection")?.mesh;
+
+    expect(connectionDebug).toBeDefined();
+    expect(countTrianglesOverlappingAabb(connectionDebug!, sampleBox([-8, -2, -2], [8, 2, 2]))).toBe(0);
+  });
+
+  it("nearby connections reuse an existing trunk instead of carving parallel middle runs", async () => {
+    const primitive: Primitive = { kind: "box", size: [10, 10, 6] };
+    const left = makePrimitiveRequest("left", primitive, [-16, 0, 0]);
+    const right = makePrimitiveRequest("right", primitive, [16, 0, 0]);
+    const common = {
+      shape: "rect" as const,
+      width: 2,
+      height: 2,
+      clearance: 0.5,
+    };
+    const low: Connection = {
+      id: "low-wire",
+      name: "Low wire",
+      a: { itemId: left.id, face: "+x", u: 3, v: 3, depth: 1.5 },
+      b: { itemId: right.id, face: "-x", u: 3, v: 3, depth: 1.5 },
+      ...common,
+    };
+    const high: Connection = {
+      id: "high-wire",
+      name: "High wire",
+      a: { itemId: left.id, face: "+x", u: 7, v: 3, depth: 1.5 },
+      b: { itemId: right.id, face: "-x", u: 7, v: 3, depth: 1.5 },
+      ...common,
+    };
+
+    const result = await generate({ items: [left, right], params, cutouts: [], connections: [low, high] });
+    const connectionDebug = result.debug?.find((entry) => entry.key === "connection")?.mesh;
+
+    expect(connectionDebug).toBeDefined();
+    expect(countTrianglesOverlappingAabb(connectionDebug!, sampleBox([-4, 1.4, 1], [4, 2.6, 5]))).toBe(0);
+  });
+
+  it("crossed adjacent-face connections merge onto a shared trunk", () => {
+    const primitive: Primitive = { kind: "box", size: [20, 20, 10] };
+    const topLeft = makePrimitiveRequest("top-left", primitive, [-25, -27.5, 0]);
+    const bottomRight = makePrimitiveRequest("bottom-right", primitive, [20.8, 0, 0]);
+    const common = {
+      shape: "rect" as const,
+      width: 4,
+      height: 3,
+      clearance: 1.5,
+    };
+    const first: Connection = {
+      id: "first",
+      name: "Connection",
+      a: { itemId: bottomRight.id, face: "-x", u: 15.624505386213817, v: 4.8595275758383565, depth: 2 },
+      b: { itemId: topLeft.id, face: "+y", u: 3.0159363358849944, v: 5.5731266484677775, depth: 2 },
+      ...common,
+    };
+    const second: Connection = {
+      id: "second",
+      name: "Connection",
+      a: { itemId: topLeft.id, face: "+y", u: 10.265129875901504, v: 4.988839276131202, depth: 2 },
+      b: { itemId: bottomRight.id, face: "-x", u: 10.515568089037949, v: 5.427153206667938, depth: 2 },
+      ...common,
+    };
+
+    const routes = debugPlanConnectionRoutes([first, second], [topLeft, bottomRight], null);
+
+    expect(routes).toHaveLength(2);
+    expect(hasSharedSegment(routes[1], routes[0], 10)).toBe(true);
+  });
+
+  it("same-direction crossed adjacent-face connections merge onto a shared trunk", () => {
+    const primitive: Primitive = { kind: "box", size: [20, 20, 10] };
+    const topLeft = makePrimitiveRequest("top-left", primitive, [-17.5, -32.5, 0]);
+    const bottomRight = makePrimitiveRequest("bottom-right", primitive, [20.8, 0, 0]);
+    const common = {
+      shape: "rect" as const,
+      width: 4,
+      height: 3,
+      clearance: 1.5,
+    };
+    const first: Connection = {
+      id: "first",
+      name: "Connection",
+      a: { itemId: topLeft.id, face: "+y", u: 2.781951971011715, v: 4.413114737396029, depth: 2 },
+      b: { itemId: bottomRight.id, face: "-x", u: 17.764576348363065, v: 5.19532406751059, depth: 2 },
+      ...common,
+    };
+    const second: Connection = {
+      id: "second",
+      name: "Connection",
+      a: { itemId: topLeft.id, face: "+y", u: 8.170523735786222, v: 4.551144680023285, depth: 2 },
+      b: { itemId: bottomRight.id, face: "-x", u: 13.568200916550602, v: 5.388880918830878, depth: 2 },
+      ...common,
+    };
+
+    const routes = debugPlanConnectionRoutes([first, second], [topLeft, bottomRight], null);
+
+    expect(routes).toHaveLength(2);
+    expect(hasSharedSegment(routes[1], routes[0], 10)).toBe(true);
+  });
+
+  it("bottom-to-top stress route intentionally expands below the component", async () => {
+    const primitive: Primitive = { kind: "box", size: [20, 20, 10] };
+    const left = makePrimitiveRequest("left", primitive, [-19, -23, 0]);
+    const right = makePrimitiveRequest("right", primitive, [20.8, 0, 0]);
+    const connection: Connection = {
+      id: "stress",
+      name: "Connection",
+      a: { itemId: left.id, face: "-z", u: 8.478235898372692, v: 10.043588242866797, depth: 2 },
+      b: { itemId: right.id, face: "+z", u: 10.178544437561357, v: 10.100645114877754, depth: 2 },
+      shape: "rect",
+      width: 4,
+      height: 3,
+      clearance: 1.5,
+    };
+
+    const [route] = debugPlanConnectionRoutes([connection], [left, right], null);
+    const result = await generate({ items: [left, right], params, cutouts: [], connections: [connection] });
+    const minZ = Math.min(...route.map((p) => p[2]));
+
+    expect(route).toBeDefined();
+    expect(minZ).toBe(-5);
+    expect(result.outer.min[2]).toBeLessThan(-9);
   });
 
   it("exports the base as a single connected solid with and without snap-fit", async () => {

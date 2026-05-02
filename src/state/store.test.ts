@@ -2,6 +2,14 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { defaultParams, type ImportedMesh } from "../cad/types";
 import { useStore } from "./store";
 
+function center(mesh: ImportedMesh, position: [number, number, number]): [number, number, number] {
+  return [
+    (mesh.aabb.min[0] + mesh.aabb.max[0]) / 2 + position[0],
+    (mesh.aabb.min[1] + mesh.aabb.max[1]) / 2 + position[1],
+    (mesh.aabb.min[2] + mesh.aabb.max[2]) / 2 + position[2],
+  ];
+}
+
 beforeEach(() => {
   useStore.setState({
     items: [],
@@ -39,5 +47,6 @@ describe("useStore flipImportItem", () => {
 
     expect(flipped.meshVersion).toBe(1);
     expect(Array.from(flipped.mesh.positions)).not.toEqual(Array.from(initial.mesh.positions));
+    expect(center(flipped.mesh, flipped.position)).toEqual(center(initial.mesh, initial.position));
   });
 });

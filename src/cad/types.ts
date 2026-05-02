@@ -34,13 +34,13 @@ export interface EnclosureParams {
 export const defaultParams: EnclosureParams = {
   wall: 2.0,
   floor: 1.6,
-  clearance: 0.5,
+  clearance: 0.8,
   fillet: 1.0,
   lidFrac: 0.25,
   lipDepth: 3.0,
-  lipTol: 0.2,
-  snapFit: false,
-  snapSize: 0.3,
+  lipTol: 0.3,
+  snapFit: true,
+  snapSize: 0.5,
   snapPlacement: "both-y",
 };
 
@@ -59,9 +59,43 @@ export interface Cutout {
   shape: "rect" | "circle";
 }
 
+export type ConnectionShape = "rect" | "round";
+
+export interface ConnectionEndpoint {
+  itemId: string;
+  /** Face on the selected item's local AABB. */
+  face: FaceAxis;
+  /** Center position in item-face-local UV (mm, origin at item face AABB min). */
+  u: number;
+  v: number;
+  /** How far the endpoint pad reaches through the selected face (mm). */
+  depth: number;
+}
+
+export interface Connection {
+  id: string;
+  name: string;
+  a: ConnectionEndpoint;
+  b: ConnectionEndpoint;
+  shape: ConnectionShape;
+  /** Rect width or round diameter (mm). */
+  width: number;
+  /** Rect height (mm). Ignored for round corridors. */
+  height: number;
+  /** Extra padding around endpoint pads and the routed corridor (mm). */
+  clearance: number;
+}
+
 export interface MeshData {
   positions: Float32Array;
   indices: Uint32Array;
+}
+
+export type DebugMeshKey = "fit" | "access" | "relief" | "cutout" | "connection";
+
+export interface DebugMesh {
+  key: DebugMeshKey;
+  mesh: MeshData;
 }
 
 /** Raw imported mesh — positions/indices plus its connected sub-solids. */
@@ -94,6 +128,8 @@ interface ItemBase {
    *  The flushed axis is excluded from enclosure sizing so the box doesn't
    *  grow to accommodate the overshoot. */
   flushFace?: FaceAxis | null;
+  /** Optional per-item fit clearance override. Uses global clearance when unset. */
+  fitClearance?: number | null;
 }
 
 export function faceAxisNum(face: FaceAxis): 0 | 1 | 2 {
@@ -132,12 +168,14 @@ export interface ItemRequest {
   primitive?: Primitive;
   meshVersion?: number;
   flushFace?: FaceAxis | null;
+  fitClearance?: number | null;
 }
 
 export interface GenerateRequest {
   items: ItemRequest[];
   params: EnclosureParams;
   cutouts: Cutout[];
+  connections?: Connection[];
 }
 
 export interface GenerateResult {
@@ -145,4 +183,6 @@ export interface GenerateResult {
   lid: MeshData;
   /** AABB of the outer shell, convenient for UI. */
   outer: AABB;
+  /** Optional helper volumes for visual debugging in the viewer. */
+  debug?: DebugMesh[];
 }

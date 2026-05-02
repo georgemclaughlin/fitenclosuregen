@@ -59,8 +59,8 @@ function expectClose(actual: number, expected: number, tol: number, label: strin
   expect(diff, `${label}: ${actual.toFixed(2)} vs ${expected.toFixed(2)}, diff=${diff.toFixed(3)}`).toBeLessThan(tol);
 }
 
-// Default "+ Box" is 20×20×10, params: wall=2, clearance=0.5, floor=1.6.
-// Outer size no-flush: 20+2*(0.5+2) = 25 on x/y.
+// Default "+ Box" is 20×20×10, params: wall=2, clearance=0.8, floor=1.6.
+// Outer size no-flush: 20+2*(0.8+2) = 25.6 on x/y.
 
 test("single box flush +x: flushed axis shrinks, non-flushed unchanged", async ({ page }) => {
   await page.goto("/");
@@ -83,9 +83,9 @@ test("single box flush +x: flushed axis shrinks, non-flushed unchanged", async (
   expectClose(afterSize[1], beforeSize[1], 0.1, "Y depth");
   expectClose(afterSize[2], beforeSize[2], 0.1, "Z height");
 
-  // X should shrink by clearance+wall = 2.5 (opposite side tightens).
+  // X should shrink by clearance+wall = 2.8 (opposite side tightens).
   expect(afterSize[0]).toBeLessThan(beforeSize[0] - 0.5);
-  expectClose(afterSize[0], beforeSize[0] - 2.5, 0.5, "X width shrank");
+  expectClose(afterSize[0], beforeSize[0] - 2.8, 0.5, "X width shrank");
 });
 
 test("single box flush -y: flushed axis shrinks, non-flushed unchanged", async ({ page }) => {
@@ -137,7 +137,7 @@ test("flush +x: wall thickness uniform on opposite side", async ({ page }) => {
   await expect(page.getByText("Drop a model file")).toBeVisible();
   await addBoxAndWaitReady(page);
 
-  const xInput = page.locator('label').filter({ hasText: /^x$/ }).locator('input[type="number"]');
+  const xInput = page.locator('input[aria-label="x"]').first();
   const origX = parseFloat(await xInput.inputValue());
 
   await page.getByRole("button", { name: "+x", exact: true }).first().click();
@@ -152,12 +152,12 @@ test("flush +x: wall thickness uniform on opposite side", async ({ page }) => {
   console.log(`Item moved from x=${origX.toFixed(2)} to x=${newX.toFixed(2)}`);
   console.log(`After bounds x: [${afterBounds.min[0].toFixed(2)}, ${afterBounds.max[0].toFixed(2)}]`);
 
-  // -x wall = item.min.x - outer.min.x should be ~2.5 (clearance+wall).
+  // -x wall = item.min.x - outer.min.x should be ~2.8 (clearance+wall).
   const itemHalfWidth = 10; // 20/2
   const itemMinX = newX - itemHalfWidth;
   const minusXWall = itemMinX - afterBounds.min[0];
   console.log(`-x wall thickness: ${minusXWall.toFixed(2)}`);
-  expectClose(minusXWall, 2.5, 0.5, "-x wall thickness");
+  expectClose(minusXWall, 2.8, 0.5, "-x wall thickness");
 });
 
 test("flush then un-flush: geometry returns to valid state", async ({ page }) => {

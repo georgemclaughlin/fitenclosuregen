@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import {
   Cutout,
+  DebugMeshKey,
   EnclosureParams,
   FaceAxis,
   GenerateResult,
@@ -8,6 +9,7 @@ import {
   ImportedMesh,
   Item,
   MeshData,
+  Connection,
   Primitive,
   PrimitiveItem,
   Vec3,
@@ -22,6 +24,17 @@ import { buildEnclosureGeometry } from "../cad/shell";
 import type { AABB } from "../cad/types";
 
 type FlipAxis = 0 | 1 | 2;
+
+export interface ConnectionPickPoint {
+  endpoint: import("../cad/types").ConnectionEndpoint;
+  point: Vec3;
+  itemName: string;
+}
+
+interface ConnectionPickState {
+  active: boolean;
+  first: ConnectionPickPoint | null;
+}
 
 function flipPositions(pos: Float32Array, axis: FlipAxis): Float32Array {
   const out = new Float32Array(pos.length);
@@ -45,17 +58,31 @@ function flipImportedMesh(m: ImportedMesh, axis: FlipAxis): ImportedMesh {
   return { positions, indices: m.indices, aabb: computeAabb(positions), parts };
 }
 
+function aabbCenter(aabb: AABB): Vec3 {
+  return [
+    (aabb.min[0] + aabb.max[0]) / 2,
+    (aabb.min[1] + aabb.max[1]) / 2,
+    (aabb.min[2] + aabb.max[2]) / 2,
+  ];
+}
+
 interface AppState {
   items: Item[];
   /** Primary (first) item controls the enclosure reference frame for UI. */
   params: EnclosureParams;
   cutouts: Cutout[];
+  connections: Connection[];
+  connectionPick: ConnectionPickState;
   result: GenerateResult | null;
   generating: boolean;
   error: string | null;
   showBase: boolean;
   showLid: boolean;
   showComponent: boolean;
+  showDebug: boolean;
+  showConnections: boolean;
+  showGrid: boolean;
+  debugVisibility: Record<DebugMeshKey, boolean>;
   shellOpacity: number;
 
   addImport: (name: string, mesh: ImportedMesh) => void;
@@ -65,6 +92,7 @@ interface AppState {
   setItemRotation: (id: string, rotation: Vec3) => void;
   renameItem: (id: string, name: string) => void;
   setPrimitive: (id: string, primitive: Primitive) => void;
+  setItemFitClearance: (id: string, fitClearance: number | null) => void;
   flipImportItem: (id: string, axis: FlipAxis) => void;
   flushItem: (id: string, face: FaceAxis) => void;
   unflushItem: (id: string) => void;
@@ -75,10 +103,17 @@ interface AppState {
   addCutout: (c: Cutout) => void;
   updateCutout: (id: string, patch: Partial<Cutout>) => void;
   removeCutout: (id: string) => void;
+  addConnection: (c: Connection) => void;
+  updateConnection: (id: string, patch: Partial<Connection>) => void;
+  removeConnection: (id: string) => void;
+  beginConnectionPick: () => void;
+  setConnectionPickFirst: (p: ConnectionPickPoint) => void;
+  cancelConnectionPick: () => void;
   setResult: (r: GenerateResult | null) => void;
   setGenerating: (b: boolean) => void;
   setError: (e: string | null) => void;
-  setVisibility: (k: "showBase" | "showLid" | "showComponent", v: boolean) => void;
+  setVisibility: (k: "showBase" | "showLid" | "showComponent" | "showDebug" | "showConnections" | "showGrid", v: boolean) => void;
+  setDebugVisibility: (k: DebugMeshKey, v: boolean) => void;
   setShellOpacity: (v: number) => void;
 }
 
@@ -102,13 +137,25 @@ export const useStore = create<AppState>((set) => ({
   items: [],
   params: defaultParams,
   cutouts: [],
+  connections: [],
+  connectionPick: { active: false, first: null },
   result: null,
   generating: false,
   error: null,
   showBase: true,
   showLid: true,
   showComponent: true,
-  shellOpacity: 0.35,
+  showDebug: false,
+  showConnections: true,
+  showGrid: true,
+  debugVisibility: {
+    fit: true,
+    access: true,
+    relief: true,
+    cutout: true,
+    connection: true,
+  },
+  shellOpacity: 0.5,
 
   addImport: (name, mesh) => set((s) => ({
     items: [...s.items, makeImportItem(name, mesh, placeAlongside(s.items, mesh.aabb, s.params.clearance))],
@@ -116,7 +163,11 @@ export const useStore = create<AppState>((set) => ({
   addPrimitive: (name, primitive) => set((s) => ({
     items: [...s.items, makePrimitiveItem(name, primitive, placeAlongside(s.items, primitiveAabb(primitive), s.params.clearance))],
   })),
-  removeItem: (id) => set((s) => ({ items: s.items.filter((it) => it.id !== id) })),
+  removeItem: (id) => set((s) => ({
+    items: s.items.filter((it) => it.id !== id),
+    connections: s.connections.filter((c) => c.a.itemId !== id && c.b.itemId !== id),
+    connectionPick: s.connectionPick.first?.endpoint.itemId === id ? { active: false, first: null } : s.connectionPick,
+  })),
   setItemPosition: (id, position) =>
     set((s) => ({ items: s.items.map((it) => (it.id === id ? { ...it, position } : it)) })),
   setItemRotation: (id, rotation) =>
@@ -129,13 +180,22 @@ export const useStore = create<AppState>((set) => ({
         it.id === id && it.kind === "primitive" ? { ...it, primitive } : it,
       ),
     })),
+  setItemFitClearance: (id, fitClearance) =>
+    set((s) => ({ items: s.items.map((it) => (it.id === id ? { ...it, fitClearance } : it)) })),
   flipImportItem: (id, axis) =>
     set((s) => ({
-      items: s.items.map((it) =>
-        it.id === id && it.kind === "import"
-          ? { ...it, mesh: flipImportedMesh(it.mesh, axis), meshVersion: it.meshVersion + 1 }
-          : it,
-      ),
+      items: s.items.map((it) => {
+        if (it.id !== id || it.kind !== "import") return it;
+        const nextMesh = flipImportedMesh(it.mesh, axis);
+        const before = aabbCenter(it.mesh.aabb);
+        const after = aabbCenter(nextMesh.aabb);
+        const nextPosition: Vec3 = [
+          it.position[0] + before[0] - after[0],
+          it.position[1] + before[1] - after[1],
+          it.position[2] + before[2] - after[2],
+        ];
+        return { ...it, mesh: nextMesh, position: nextPosition, meshVersion: it.meshVersion + 1 };
+      }),
     })),
   flushItem: (id, face) =>
     set((s) => {
@@ -202,7 +262,7 @@ export const useStore = create<AppState>((set) => ({
     set((s) => ({
       items: s.items.map((it) => it.id === id ? { ...it, flushFace: null } : it),
     })),
-  clearItems: () => set({ items: [], cutouts: [] }),
+  clearItems: () => set({ items: [], cutouts: [], connections: [], connectionPick: { active: false, first: null } }),
 
   setParam: (k, v) => set((s) => ({ params: { ...s.params, [k]: v } })),
   setParams: (p) => set({ params: p }),
@@ -210,10 +270,18 @@ export const useStore = create<AppState>((set) => ({
   updateCutout: (id, patch) =>
     set((s) => ({ cutouts: s.cutouts.map((c) => (c.id === id ? { ...c, ...patch } : c)) })),
   removeCutout: (id) => set((s) => ({ cutouts: s.cutouts.filter((c) => c.id !== id) })),
+  addConnection: (c) => set((s) => ({ connections: [...s.connections, c] })),
+  updateConnection: (id, patch) =>
+    set((s) => ({ connections: s.connections.map((c) => (c.id === id ? { ...c, ...patch } : c)) })),
+  removeConnection: (id) => set((s) => ({ connections: s.connections.filter((c) => c.id !== id) })),
+  beginConnectionPick: () => set({ connectionPick: { active: true, first: null }, showComponent: true }),
+  setConnectionPickFirst: (p) => set({ connectionPick: { active: true, first: p } }),
+  cancelConnectionPick: () => set({ connectionPick: { active: false, first: null } }),
   setResult: (r) => set({ result: r }),
   setGenerating: (b) => set({ generating: b }),
   setError: (e) => set({ error: e }),
   setVisibility: (k, v) => set({ [k]: v } as Partial<AppState>),
+  setDebugVisibility: (k, v) => set((s) => ({ debugVisibility: { ...s.debugVisibility, [k]: v } })),
   setShellOpacity: (v) => set({ shellOpacity: v }),
 }));
 

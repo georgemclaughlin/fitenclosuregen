@@ -12,6 +12,7 @@ export function App() {
   const items = useStore((s) => s.items);
   const params = useStore((s) => s.params);
   const cutouts = useStore((s) => s.cutouts);
+  const connections = useStore((s) => s.connections);
   const setResult = useStore((s) => s.setResult);
   const setGenerating = useStore((s) => s.setGenerating);
   const setError = useStore((s) => s.setError);
@@ -37,6 +38,7 @@ export function App() {
               parts: it.mesh.parts,
               meshVersion: it.meshVersion,
               flushFace: it.flushFace,
+              fitClearance: it.fitClearance,
             };
           }
           return {
@@ -47,9 +49,10 @@ export function App() {
             aabb: primitiveAabb(it.primitive),
             primitive: it.primitive,
             flushFace: it.flushFace,
+            fitClearance: it.fitClearance,
           };
         });
-        const res = await generate({ items: reqItems, params, cutouts });
+        const res = await generate({ items: reqItems, params, cutouts, connections });
         if (!cancelled) setResult(res);
       } catch (e) {
         if (!cancelled) setError((e as Error).message);
@@ -61,7 +64,7 @@ export function App() {
       cancelled = true;
       clearTimeout(t);
     };
-  }, [items, params, cutouts, setResult, setGenerating, setError]);
+  }, [items, params, cutouts, connections, setResult, setGenerating, setError]);
 
   return (
     <div style={{ display: "grid", gridTemplateColumns: "1fr 340px", height: "100%" }}>

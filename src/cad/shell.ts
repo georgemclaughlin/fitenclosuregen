@@ -39,12 +39,12 @@ export function buildEnclosureGeometry(
     min: [comp.min[0] - clearance, comp.min[1] - clearance, comp.min[2] - clearance],
     max: [comp.max[0] + clearance, comp.max[1] + clearance, comp.max[2] + clearance],
   };
-  const outer: AABB = {
+  let outer: AABB = {
     min: [comp.min[0] - clearance - wall, comp.min[1] - clearance - wall, comp.min[2] - clearance - floor],
     max: [comp.max[0] + clearance + wall, comp.max[1] + clearance + wall, comp.max[2] + clearance + wall],
   };
 
-  const outerHeight = outer.max[2] - outer.min[2];
+  let outerHeight = outer.max[2] - outer.min[2];
   // User-requested lid height from lidFrac, but grow it if needed so the lip
   // gets its full depth (lipDepth of tongue + lipTol vertical play + wall on
   // top). Without this, thin components produce a sub-millimeter lip that
@@ -52,7 +52,11 @@ export function buildEnclosureGeometry(
   const desiredLidHeight = lidFrac * outerHeight;
   const minLidHeight = wall + lipDepth + lipTol;
   const lidHeight = Math.max(desiredLidHeight, Math.min(minLidHeight, outerHeight - wall));
-  const splitZ = outer.max[2] - lidHeight;
+  const splitZ = Math.max(outer.max[2] - lidHeight, inner.max[2]);
+  if (splitZ + lidHeight > outer.max[2]) {
+    outer = { ...outer, max: [outer.max[0], outer.max[1], splitZ + lidHeight] };
+    outerHeight = outer.max[2] - outer.min[2];
+  }
 
   // Tongue: thin ring centered in the wall, thickness = wall/2.
   // Distance from inner face to ring center = wall/2 (midline of wall).

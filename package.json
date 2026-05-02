@@ -12,7 +12,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "debug:flush": "vite-node --script scripts/debug-flush-relief.ts"
   },
   "dependencies": {
     "@react-three/drei": "^9.114.0",
