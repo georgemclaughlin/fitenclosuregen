@@ -68,8 +68,8 @@ export function App() {
   }, [items, params, cutouts, connections, setResult, setGenerating, setError]);
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "1fr 340px", height: "100%" }}>
-      <div style={{ position: "relative" }}>
+    <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 340px", height: "100%", width: "100%", overflow: "hidden" }}>
+      <div style={{ position: "relative", minWidth: 0, minHeight: 0, overflow: "hidden" }}>
         <Viewer />
         {items.length === 0 && <FileDrop />}
       </div>
