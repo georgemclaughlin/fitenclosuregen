@@ -16,7 +16,7 @@ declare global {
   interface Window { occtimportjs?: () => Promise<OcctModule> }
 }
 
-const SCRIPT_URL = "/occt/occt-import-js.js";
+const SCRIPT_URL = `${import.meta.env.BASE_URL}occt/occt-import-js.js`;
 
 let scriptPromise: Promise<void> | null = null;
 let modulePromise: Promise<OcctModule> | null = null;
