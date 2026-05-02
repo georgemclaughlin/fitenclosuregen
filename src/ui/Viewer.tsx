@@ -670,7 +670,7 @@ export function Viewer() {
   const gridZ = useStore((s) => s.result ? s.result.outer.min[2] - 0.2 : 0);
   const busyLabel = importing ? (importLabel ?? "Loading model") : generating ? "Generating enclosure" : null;
   return (
-    <div ref={ref} style={{ width: "100%", height: "100%", cursor: connectionPickActive ? "crosshair" : "default", position: "relative" }}>
+    <div ref={ref} style={{ width: "100%", height: "100%", cursor: connectionPickActive ? "crosshair" : "default", position: "relative", touchAction: "none" }}>
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       {busyLabel && (
         <div style={busyOverlayStyle}>

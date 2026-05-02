@@ -68,8 +68,39 @@ export function App() {
   }, [items, params, cutouts, connections, setResult, setGenerating, setError]);
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 340px", height: "100%", width: "100%", overflow: "hidden" }}>
-      <div style={{ position: "relative", minWidth: 0, minHeight: 0, overflow: "hidden" }}>
+    <div className="app-shell">
+      <style>{`
+        .app-shell {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) 340px;
+          height: 100%;
+          width: 100%;
+          overflow: hidden;
+        }
+        .viewer-pane {
+          position: relative;
+          min-width: 0;
+          min-height: 0;
+          overflow: hidden;
+        }
+        @media (max-width: 760px) {
+          .app-shell {
+            grid-template-columns: minmax(0, 1fr);
+            grid-template-rows: minmax(44vh, 1fr) minmax(250px, 42vh);
+          }
+          .app-sidebar {
+            border-left: 0 !important;
+            border-top: 1px solid #3b3328;
+            padding: 10px !important;
+          }
+        }
+        @media (max-width: 480px) {
+          .app-shell {
+            grid-template-rows: minmax(38vh, 1fr) minmax(280px, 48vh);
+          }
+        }
+      `}</style>
+      <div className="viewer-pane">
         <Viewer />
         {items.length === 0 && <FileDrop />}
       </div>

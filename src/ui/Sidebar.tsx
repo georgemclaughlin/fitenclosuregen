@@ -87,7 +87,7 @@ export function Sidebar() {
   const lidParamDefs = paramDefs.filter((d) => !caseParamKeys.has(d.key));
 
   return (
-    <div style={sidebarStyle}>
+    <div className="app-sidebar" style={sidebarStyle}>
       <div style={brandCardStyle}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <div style={brandMarkStyle}>DF</div>
