@@ -5,21 +5,25 @@ import { useStore } from "../state/store";
 export function FileDrop() {
   const addImport = useStore((s) => s.addImport);
   const setError = useStore((s) => s.setError);
+  const setImporting = useStore((s) => s.setImporting);
   const [hover, setHover] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const handleFile = useCallback(async (file: File) => {
     setLoading(true);
+    setImporting(`Loading ${file.name}`);
     setError(null);
     try {
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
       const loaded = await loadComponent(file);
       addImport(loaded.name, loaded.mesh);
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setLoading(false);
+      setImporting(null);
     }
-  }, [addImport, setError]);
+  }, [addImport, setError, setImporting]);
 
   return (
     <div

@@ -74,6 +74,8 @@ interface AppState {
   connections: Connection[];
   connectionPick: ConnectionPickState;
   result: GenerateResult | null;
+  importing: boolean;
+  importLabel: string | null;
   generating: boolean;
   error: string | null;
   showBase: boolean;
@@ -82,6 +84,7 @@ interface AppState {
   showDebug: boolean;
   showConnections: boolean;
   showGrid: boolean;
+  showShellEdges: boolean;
   debugVisibility: Record<DebugMeshKey, boolean>;
   shellOpacity: number;
 
@@ -110,9 +113,10 @@ interface AppState {
   setConnectionPickFirst: (p: ConnectionPickPoint) => void;
   cancelConnectionPick: () => void;
   setResult: (r: GenerateResult | null) => void;
+  setImporting: (label: string | null) => void;
   setGenerating: (b: boolean) => void;
   setError: (e: string | null) => void;
-  setVisibility: (k: "showBase" | "showLid" | "showComponent" | "showDebug" | "showConnections" | "showGrid", v: boolean) => void;
+  setVisibility: (k: "showBase" | "showLid" | "showComponent" | "showDebug" | "showConnections" | "showGrid" | "showShellEdges", v: boolean) => void;
   setDebugVisibility: (k: DebugMeshKey, v: boolean) => void;
   setShellOpacity: (v: number) => void;
 }
@@ -140,6 +144,8 @@ export const useStore = create<AppState>((set) => ({
   connections: [],
   connectionPick: { active: false, first: null },
   result: null,
+  importing: false,
+  importLabel: null,
   generating: false,
   error: null,
   showBase: true,
@@ -148,6 +154,7 @@ export const useStore = create<AppState>((set) => ({
   showDebug: false,
   showConnections: true,
   showGrid: true,
+  showShellEdges: true,
   debugVisibility: {
     fit: true,
     access: true,
@@ -278,6 +285,7 @@ export const useStore = create<AppState>((set) => ({
   setConnectionPickFirst: (p) => set({ connectionPick: { active: true, first: p } }),
   cancelConnectionPick: () => set({ connectionPick: { active: false, first: null } }),
   setResult: (r) => set({ result: r }),
+  setImporting: (label) => set({ importing: Boolean(label), importLabel: label }),
   setGenerating: (b) => set({ generating: b }),
   setError: (e) => set({ error: e }),
   setVisibility: (k, v) => set({ [k]: v } as Partial<AppState>),

@@ -20,11 +20,12 @@ export function App() {
   useEffect(() => {
     if (items.length === 0) {
       setResult(null);
+      setGenerating(false);
       return;
     }
+    setGenerating(true);
     let cancelled = false;
     const t = setTimeout(async () => {
-      setGenerating(true);
       setError(null);
       try {
         const reqItems: ItemRequest[] = items.map((it) => {

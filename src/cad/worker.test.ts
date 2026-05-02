@@ -511,6 +511,57 @@ describe("generate flushed cutouts", () => {
     expect(countTrianglesOverlappingAabb(result.base, roofOverFootprint)).toBe(0);
   });
 
+  it("keeps an imported board top open when a taller battery raises the base split", async () => {
+    const board: AABB = { min: [-15, -9, 0], max: [15, 9, 1.4] };
+    const header: AABB = { min: [-11, -6, -5], max: [11, -4.8, 0] };
+    const connector: AABB = { min: [12, -3, 1.4], max: [15, 3, 3.6] };
+    const mesh = mergeBoxes([board, header, connector]);
+    const importAabb: AABB = { min: [-15, -9, -5], max: [15, 9, 3.6] };
+    const importedBoard = makeImportRequest("lilygo-like", mesh, importAabb, [-8, 0, 1], null);
+    const battery = makePrimitiveRequest(
+      "battery",
+      { kind: "cylinder", axis: "y", radius: 9.3, height: 65.2 },
+      [20, 0, 0],
+    );
+
+    const result = await generate({ items: [importedBoard, battery], params, cutouts: [] });
+    const boardTop = transformedAabb(importedBoard.aabb, importedBoard.rotation, importedBoard.position).max[2];
+
+    const roofOverBoard = sampleBox(
+      [-18, -5, boardTop + params.clearance + 0.2],
+      [-2, 5, result.outer.max[2] - params.wall - 0.2],
+    );
+
+    expect(result.outer.max[2]).toBeGreaterThan(boardTop + 5);
+    expect(countTrianglesOverlappingAabb(result.base, roofOverBoard)).toBe(0);
+  });
+
+  it("keeps a flushed imported board top open when a taller battery raises the base split", async () => {
+    const board: AABB = { min: [-0.3, -1.4, -1], max: [25.7, 51.5, 1.4] };
+    const header: AABB = { min: [4, 10, -8.9], max: [18, 12, -1] };
+    const connector: AABB = { min: [22, 34, 1.4], max: [25.7, 43, 4.3] };
+    const mesh = mergeBoxes([board, header, connector]);
+    const importAabb: AABB = { min: [-0.3, -1.4, -8.9], max: [25.7, 51.5, 4.3] };
+    const importReq = makeImportRequest("ttgo-like", mesh, importAabb, [-25.4, -2.8, 4.6], "-y");
+    const flushedBoard = { ...importReq, position: flushPosition(importReq, "-y") };
+    const battery = makePrimitiveRequest(
+      "battery",
+      { kind: "cylinder", axis: "x", radius: 9.3, height: 65.2 },
+      [-12.7, 61.6, 2.3],
+    );
+
+    const result = await generate({ items: [flushedBoard, battery], params, cutouts: [] });
+    const boardWorld = transformedAabb(flushedBoard.aabb, flushedBoard.rotation, flushedBoard.position);
+
+    const roofOverBoard = sampleBox(
+      [boardWorld.min[0] + 4, boardWorld.min[1] + 8, boardWorld.max[2] + params.clearance + 0.2],
+      [boardWorld.max[0] - 4, boardWorld.max[1] - 8, result.outer.max[2] - params.wall - 0.2],
+    );
+
+    expect(result.outer.max[2]).toBeGreaterThan(boardWorld.max[2] + 5);
+    expect(countTrianglesOverlappingAabb(result.base, roofOverBoard)).toBe(0);
+  });
+
   it("connections carve endpoint pads and a straight buffered corridor between items", async () => {
     const primitive: Primitive = { kind: "box", size: [10, 10, 6] };
     const left = makePrimitiveRequest("left", primitive, [-12, 0, 0]);

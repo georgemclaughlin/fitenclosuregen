@@ -74,6 +74,7 @@ export function Sidebar() {
   const showDebug = useStore((s) => s.showDebug);
   const showConnections = useStore((s) => s.showConnections);
   const showGrid = useStore((s) => s.showGrid);
+  const showShellEdges = useStore((s) => s.showShellEdges);
   const debugVisibility = useStore((s) => s.debugVisibility);
   const shellOpacity = useStore((s) => s.shellOpacity);
   const setVisibility = useStore((s) => s.setVisibility);
@@ -86,13 +87,20 @@ export function Sidebar() {
   const lidParamDefs = paramDefs.filter((d) => !caseParamKeys.has(d.key));
 
   return (
-    <div style={{
-      padding: 16, background: "#1a1a1a", overflowY: "auto", borderLeft: "1px solid #333",
-      display: "flex", flexDirection: "column", gap: 16,
-    }}>
-      <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-        <h2 style={{ margin: 0, fontSize: 18 }}>FitEnclosureGen</h2>
-        <div style={{ fontSize: 11, color: "#888" }}>Drop-in enclosure layout and STL export</div>
+    <div style={sidebarStyle}>
+      <div style={brandCardStyle}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={brandMarkStyle}>DF</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            <h2 style={{ margin: 0, fontSize: 19, letterSpacing: -0.3 }}>DropFit Studio</h2>
+            <div style={{ fontSize: 11, color: "#a89d8c" }}>Drop-in electronics enclosures</div>
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 10 }}>
+          <span style={brandPillStyle}>STL export</span>
+          <span style={brandPillStyle}>snap-fit</span>
+          <span style={brandPillStyle}>wire routing</span>
+        </div>
       </div>
 
       <Section title="Items" summary={`${items.length} item${items.length === 1 ? "" : "s"}`}>
@@ -179,10 +187,10 @@ export function Sidebar() {
               </select>
               <button style={{ ...btn, marginLeft: "auto", background: "#833" }} onClick={() => removeCutout(c.id)}>×</button>
             </div>
-            <NumField label="u" value={c.u} onChange={(v) => updateCutout(c.id, { u: v })} />
-            <NumField label="v" value={c.v} onChange={(v) => updateCutout(c.id, { v: v })} />
-            <NumField label="w" value={c.w} onChange={(v) => updateCutout(c.id, { w: v })} />
-            <NumField label="h" value={c.h} onChange={(v) => updateCutout(c.id, { h: v })} />
+            <NumField label="u" value={c.u} step={0.1} onChange={(v) => updateCutout(c.id, { u: v })} />
+            <NumField label="v" value={c.v} step={0.1} onChange={(v) => updateCutout(c.id, { v: v })} />
+            <NumField label="w" value={c.w} step={0.1} onChange={(v) => updateCutout(c.id, { w: v })} />
+            <NumField label="h" value={c.h} step={0.1} onChange={(v) => updateCutout(c.id, { h: v })} />
           </div>
         ))}
       </Section>
@@ -223,6 +231,7 @@ export function Sidebar() {
         <Checkbox label="Component" checked={showComponent} onChange={(v) => setVisibility("showComponent", v)} />
         <Checkbox label="Virtual connections" checked={showConnections} onChange={(v) => setVisibility("showConnections", v)} />
         <Checkbox label="Grid" checked={showGrid} onChange={(v) => setVisibility("showGrid", v)} />
+        <Checkbox label="Shell outlines" checked={showShellEdges} onChange={(v) => setVisibility("showShellEdges", v)} />
         <Checkbox label="Debug helpers" checked={showDebug} onChange={(v) => setVisibility("showDebug", v)} />
         {showDebug && (
           <>
@@ -273,6 +282,7 @@ export function Sidebar() {
                 showDebug,
                 showConnections,
                 showGrid,
+                showShellEdges,
                 debugVisibility,
                 shellOpacity,
               },
@@ -312,7 +322,17 @@ export function Sidebar() {
         )}
       </Section>
 
-      <div style={{ fontSize: 12, color: generating ? "#ad5" : error ? "#e66" : "#888" }}>
+      <div style={{
+        ...statusStyle,
+        borderColor: error ? "#8b3333" : generating ? "#6b812d" : result ? "#2f6b4a" : "#373737",
+        color: error ? "#ffcaca" : generating ? "#dff59a" : result ? "#baf3cf" : "#aaa",
+      }}>
+        <span style={{
+          width: 8,
+          height: 8,
+          borderRadius: 999,
+          background: error ? "#e66" : generating ? "#d6e76f" : result ? "#39d27a" : "#777",
+        }} />
         {error ? `Error: ${error}` : generating ? "Generating…" : result ? "Ready." : "Idle."}
       </div>
     </div>
@@ -380,22 +400,33 @@ function AddControls({ onImport, onPrimitive }: {
   onPrimitive: (name: string, p: Primitive) => void;
 }) {
   const setError = useStore((s) => s.setError);
+  const setImporting = useStore((s) => s.setImporting);
   const fileRef = useRef<HTMLInputElement>(null);
   const [presetIdx, setPresetIdx] = useState(0);
+  const [loadingFile, setLoadingFile] = useState<string | null>(null);
 
   const handleFile = async (f: File) => {
+    setLoadingFile(f.name);
+    setImporting(`Loading ${f.name}`);
+    setError(null);
     try {
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
       const loaded = await loadComponent(f);
       onImport(loaded.name, loaded.mesh);
     } catch (e) {
       setError((e as Error).message);
+    } finally {
+      setLoadingFile(null);
+      setImporting(null);
     }
   };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4 }}>
-        <button style={btn} onClick={() => fileRef.current?.click()}>+ Import…</button>
+        <button style={btn} disabled={Boolean(loadingFile)} onClick={() => fileRef.current?.click()}>
+          {loadingFile ? "Loading…" : "+ Import…"}
+        </button>
         <input
           ref={fileRef}
           type="file"
@@ -425,6 +456,7 @@ function AddControls({ onImport, onPrimitive }: {
           <option key={p.label} value={i}>{p.label}</option>
         ))}
       </select>
+      {loadingFile && <div style={{ fontSize: 11, color: "#ad5" }}>Parsing {loadingFile}…</div>}
     </div>
   );
 }
@@ -482,11 +514,11 @@ function ConnectionEditor({ connection, items, onChange, onRemove }: {
           <option value="round">round</option>
         </select>
       </div>
-      <NumField label={connection.shape === "round" ? "diameter" : "width"} value={connection.width} onChange={(v) => onChange({ width: v })} />
+      <NumField label={connection.shape === "round" ? "diameter" : "width"} value={connection.width} step={0.1} onChange={(v) => onChange({ width: v })} />
       {connection.shape === "rect" && (
-        <NumField label="height" value={connection.height} onChange={(v) => onChange({ height: v })} />
+        <NumField label="height" value={connection.height} step={0.1} onChange={(v) => onChange({ height: v })} />
       )}
-      <NumField label="pad" value={connection.clearance} onChange={(v) => onChange({ clearance: v })} />
+      <NumField label="pad" value={connection.clearance} step={0.1} onChange={(v) => onChange({ clearance: v })} />
     </div>
   );
 }
@@ -547,9 +579,9 @@ function EndpointEditor({ label, endpoint, items, onChange }: {
           {FACES.map((f) => <option key={f} value={f}>{f}</option>)}
         </select>
       </label>
-      <NumField label="u" value={endpoint.u} onChange={(v) => patch({ u: v })} />
-      <NumField label="v" value={endpoint.v} onChange={(v) => patch({ v })} />
-      <NumField label="depth" value={endpoint.depth} onChange={(v) => patch({ depth: v })} />
+      <NumField label="u" value={endpoint.u} step={0.1} onChange={(v) => patch({ u: v })} />
+      <NumField label="v" value={endpoint.v} step={0.1} onChange={(v) => patch({ v })} />
+      <NumField label="depth" value={endpoint.depth} step={0.1} onChange={(v) => patch({ depth: v })} />
     </div>
   );
 }
@@ -657,6 +689,7 @@ function ItemCard({ item, overlapping }: { item: Item; overlapping: boolean }) {
             <NumField
               label="fit"
               value={item.fitClearance ?? params.clearance}
+              step={0.1}
               onChange={(v) => setItemFitClearance(item.id, v)}
             />
             <button
@@ -733,7 +766,7 @@ function PrimitiveEditor({ item, onChange }: {
           <option value="z">Z</option>
         </select>
       </label>
-      <NumField label="r" value={p.radius} onChange={(v) => onChange({ ...p, radius: v })} />
+      <NumField label="r" value={p.radius} step={0.1} onChange={(v) => onChange({ ...p, radius: v })} />
       <NumField label="h" value={p.height} onChange={(v) => onChange({ ...p, height: v })} />
     </div>
   );
@@ -747,28 +780,17 @@ function Section({ title, summary, defaultOpen = true, children }: {
 }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6, borderTop: "1px solid #2a2a2a", paddingTop: 10 }}>
+    <div style={sectionStyle}>
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        style={{
-          background: "transparent",
-          border: 0,
-          color: "#ddd",
-          padding: 0,
-          display: "grid",
-          gridTemplateColumns: "auto 1fr auto",
-          gap: 6,
-          alignItems: "center",
-          cursor: "pointer",
-          textAlign: "left",
-        }}
+        style={sectionHeaderStyle}
       >
-        <span style={{ color: "#888", fontSize: 11, width: 12 }}>{open ? "▾" : "▸"}</span>
-        <span style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 1, color: "#aaa" }}>{title}</span>
-        {summary && <span style={{ fontSize: 11, color: "#777", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{summary}</span>}
+        <span style={{ color: "#9a8c76", fontSize: 10, width: 12 }}>{open ? "▾" : "▸"}</span>
+        <span style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 1.4, color: "#c7bda9" }}>{title}</span>
+        {summary && <span style={sectionSummaryStyle}>{summary}</span>}
       </button>
-      {open && children}
+      {open && <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{children}</div>}
     </div>
   );
 }
@@ -787,7 +809,7 @@ function Slider({ label, value, min, max, step, onChange }: {
         step={step}
         value={value}
         onChange={(e) => onChange(parseFloat(e.target.value))}
-        style={{ gridColumn: "1 / span 2" }}
+        style={{ gridColumn: "1 / span 2", accentColor: "#d89445" }}
       />
     </label>
   );
@@ -897,25 +919,110 @@ function formatNumber(value: number, precision = 3) {
 function Checkbox({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
   return (
     <label style={{ fontSize: 12, display: "flex", gap: 6, alignItems: "center" }}>
-      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} style={{ accentColor: "#d89445" }} />
       {label}
     </label>
   );
 }
 
+const sidebarStyle: React.CSSProperties = {
+  padding: 16,
+  background: "linear-gradient(180deg, #171716 0%, #121211 100%)",
+  overflowY: "auto",
+  borderLeft: "1px solid #3b3328",
+  boxShadow: "inset 1px 0 0 rgba(255,255,255,0.03)",
+  display: "flex",
+  flexDirection: "column",
+  gap: 12,
+};
+const brandCardStyle: React.CSSProperties = {
+  padding: "13px 12px",
+  borderRadius: 12,
+  background: "linear-gradient(135deg, rgba(216,148,69,0.16), rgba(62,44,25,0.2))",
+  border: "1px solid rgba(216,148,69,0.22)",
+};
+const brandMarkStyle: React.CSSProperties = {
+  width: 34,
+  height: 34,
+  borderRadius: 10,
+  display: "grid",
+  placeItems: "center",
+  fontSize: 12,
+  fontWeight: 800,
+  color: "#23160b",
+  background: "linear-gradient(135deg, #ffc36b, #d89445)",
+  boxShadow: "0 8px 18px rgba(216,148,69,0.18)",
+};
+const brandPillStyle: React.CSSProperties = {
+  border: "1px solid rgba(255,195,107,0.22)",
+  borderRadius: 999,
+  padding: "3px 7px",
+  color: "#d7c8b0",
+  background: "rgba(0,0,0,0.18)",
+  fontSize: 10,
+};
+const sectionStyle: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: 8,
+  padding: "10px 10px 12px",
+  borderRadius: 10,
+  background: "rgba(255,255,255,0.025)",
+  border: "1px solid rgba(255,255,255,0.055)",
+};
+const sectionHeaderStyle: React.CSSProperties = {
+  background: "transparent",
+  border: 0,
+  color: "#ddd",
+  padding: 0,
+  display: "grid",
+  gridTemplateColumns: "auto 1fr auto",
+  gap: 6,
+  alignItems: "center",
+  cursor: "pointer",
+  textAlign: "left",
+};
+const sectionSummaryStyle: React.CSSProperties = {
+  fontSize: 11,
+  color: "#84796a",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
+};
+const statusStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 8,
+  padding: "8px 10px",
+  borderRadius: 10,
+  background: "rgba(18,18,17,0.92)",
+  border: "1px solid",
+  fontSize: 12,
+};
 const btn: React.CSSProperties = {
-  background: "#2a6", color: "white", border: 0, padding: "6px 10px",
-  borderRadius: 4, cursor: "pointer", fontSize: 12,
+  background: "linear-gradient(180deg, #2fb36f, #22965c)",
+  color: "white",
+  border: "1px solid rgba(255,255,255,0.08)",
+  padding: "7px 10px",
+  borderRadius: 7,
+  cursor: "pointer",
+  fontSize: 12,
+  boxShadow: "0 1px 0 rgba(255,255,255,0.08) inset",
 };
 const smallBtn: React.CSSProperties = {
-  background: "#444", color: "white", border: 0, padding: "4px 6px",
-  borderRadius: 4, cursor: "pointer", fontSize: 11,
+  background: "#403d38",
+  color: "white",
+  border: "1px solid rgba(255,255,255,0.08)",
+  padding: "4px 6px",
+  borderRadius: 6,
+  cursor: "pointer",
+  fontSize: 11,
 };
 const stepBtn: React.CSSProperties = {
-  background: "#333",
+  background: "#34312d",
   color: "#eee",
-  border: "1px solid #555",
-  borderRadius: 4,
+  border: "1px solid #5c5144",
+  borderRadius: 6,
   cursor: "pointer",
   fontSize: 16,
   lineHeight: 1,
@@ -924,8 +1031,9 @@ const stepBtn: React.CSSProperties = {
 };
 const cardStyle: React.CSSProperties = {
   padding: 8,
-  background: "#222",
-  borderRadius: 6,
+  background: "#24211d",
+  border: "1px solid rgba(255,255,255,0.05)",
+  borderRadius: 8,
   display: "flex",
   flexDirection: "column",
   gap: 6,
@@ -955,5 +1063,10 @@ const warningStyle: React.CSSProperties = {
   lineHeight: 1.35,
 };
 const sel: React.CSSProperties = {
-  background: "#111", color: "#eee", border: "1px solid #333", padding: "2px 4px", fontSize: 12,
+  background: "#111",
+  color: "#eee",
+  border: "1px solid #3d372f",
+  borderRadius: 5,
+  padding: "3px 5px",
+  fontSize: 12,
 };

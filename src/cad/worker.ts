@@ -1444,7 +1444,7 @@ export async function generate(req: GenerateRequest): Promise<GenerateResult> {
       fitDebugBlocks.push(cavity);
     }
 
-    if (items[i].kind === "primitive" || (items[i].kind === "import" && !items[i].flushFace)) {
+    if (items[i].kind === "primitive" || items[i].kind === "import") {
       const dropInPocket = computeCavityPocket(
         perItemAabb[i],
         perItemClearance[i],
@@ -1462,19 +1462,31 @@ export async function generate(req: GenerateRequest): Promise<GenerateResult> {
         accessDebugBlocks.push(dropInBox);
       } else if (items[i].kind === "import" && items[i].parts) {
         const importItem = items[i];
-        const accessFloor = computeImportUpperAccessFloor(
-          importItem.parts ?? [],
-          importItem.aabb,
-          perItemClearance[i],
-        );
-        if (accessFloor !== null) {
-          const upperPocket: AABB = {
-            min: [dropInPocket.min[0], dropInPocket.min[1], accessFloor + items[i].position[2]],
-            max: dropInPocket.max,
+        const topAccessMinZ = perItemAabb[i].max[2] + perItemClearance[i];
+        if (geom.splitZ > topAccessMinZ + 1e-6) {
+          const topAccessPocket: AABB = {
+            min: [dropInPocket.min[0], dropInPocket.min[1], topAccessMinZ],
+            max: [dropInPocket.max[0], dropInPocket.max[1], geom.splitZ],
           };
-          const upperBox = boxFromAabb(Manifold, upperPocket);
-          cavityBlocks.push(upperBox);
-          accessDebugBlocks.push(upperBox);
+          const topAccessBox = boxFromAabb(Manifold, topAccessPocket);
+          cavityBlocks.push(topAccessBox);
+          accessDebugBlocks.push(topAccessBox);
+        }
+        if (!items[i].flushFace) {
+          const accessFloor = computeImportUpperAccessFloor(
+            importItem.parts ?? [],
+            importItem.aabb,
+            perItemClearance[i],
+          );
+          if (accessFloor !== null) {
+            const upperPocket: AABB = {
+              min: [dropInPocket.min[0], dropInPocket.min[1], accessFloor + items[i].position[2]],
+              max: dropInPocket.max,
+            };
+            const upperBox = boxFromAabb(Manifold, upperPocket);
+            cavityBlocks.push(upperBox);
+            accessDebugBlocks.push(upperBox);
+          }
         }
       }
       baseAccessBlocks.push(baseAccessCap(dropInPocket));

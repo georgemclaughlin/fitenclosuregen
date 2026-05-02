@@ -19,11 +19,12 @@ function meshGeometry(m: MeshData): THREE.BufferGeometry {
   return g;
 }
 
-function ShellMesh({ data, color, edgeColor, opacity, visible }: {
-  data: MeshData; color: string; edgeColor: string; opacity: number; visible: boolean;
+function ShellMesh({ data, color, edgeColor, opacity, edgesVisible, visible }: {
+  data: MeshData; color: string; edgeColor: string; opacity: number; edgesVisible: boolean; visible: boolean;
 }) {
   const geom = useMemo(() => meshGeometry(data), [data]);
   const edges = useMemo(() => new THREE.EdgesGeometry(geom, 28), [geom]);
+  const edgeOpacity = Math.max(0.08, Math.min(0.42, opacity * 0.48));
   if (!visible) return null;
   return (
     <mesh geometry={geom} castShadow receiveShadow>
@@ -35,9 +36,11 @@ function ShellMesh({ data, color, edgeColor, opacity, visible }: {
         metalness={0.02}
         depthWrite={false}
       />
-      <lineSegments geometry={edges} renderOrder={2}>
-        <lineBasicMaterial color={edgeColor} transparent opacity={Math.min(0.9, opacity + 0.25)} depthTest={false} />
-      </lineSegments>
+      {edgesVisible && (
+        <lineSegments geometry={edges} renderOrder={2}>
+          <lineBasicMaterial color={edgeColor} transparent opacity={edgeOpacity} depthTest={false} />
+        </lineSegments>
+      )}
     </mesh>
   );
 }
@@ -527,11 +530,12 @@ function Generated() {
   const showDebug = useStore((s) => s.showDebug);
   const debugVisibility = useStore((s) => s.debugVisibility);
   const opacity = useStore((s) => s.shellOpacity);
+  const showShellEdges = useStore((s) => s.showShellEdges);
   if (!result) return null;
   return (
     <>
-      <ShellMesh data={result.base} color="#b66d24" edgeColor="#ffc36b" opacity={opacity} visible={showBase} />
-      <ShellMesh data={result.lid} color="#82bd56" edgeColor="#d3ff9b" opacity={opacity} visible={showLid} />
+      <ShellMesh data={result.base} color="#b66d24" edgeColor="#ffc36b" opacity={opacity} edgesVisible={showShellEdges} visible={showBase} />
+      <ShellMesh data={result.lid} color="#82bd56" edgeColor="#d3ff9b" opacity={opacity} edgesVisible={showShellEdges} visible={showLid} />
       {showDebug && result.debug?.map((entry) => (
         <DebugMeshView
           key={entry.key}
@@ -658,10 +662,32 @@ export function Viewer() {
   const ref = useRef<HTMLDivElement>(null);
   const [hoverPick, setHoverPick] = useState<ConnectionPickPoint | null>(null);
   const connectionPickActive = useStore((s) => s.connectionPick.active);
+  const importing = useStore((s) => s.importing);
+  const importLabel = useStore((s) => s.importLabel);
+  const generating = useStore((s) => s.generating);
+  const error = useStore((s) => s.error);
   const showGrid = useStore((s) => s.showGrid);
   const gridZ = useStore((s) => s.result ? s.result.outer.min[2] - 0.2 : 0);
+  const busyLabel = importing ? (importLabel ?? "Loading model") : generating ? "Generating enclosure" : null;
   return (
     <div ref={ref} style={{ width: "100%", height: "100%", cursor: connectionPickActive ? "crosshair" : "default", position: "relative" }}>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      {busyLabel && (
+        <div style={busyOverlayStyle}>
+          <div style={spinnerStyle} />
+          <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+            <div style={{ fontWeight: 700 }}>{busyLabel}…</div>
+            <div style={{ fontSize: 12, color: "#b9c3ca" }}>
+              Large STEP/STL files can take a few seconds.
+            </div>
+          </div>
+        </div>
+      )}
+      {error && !busyLabel && (
+        <div style={{ ...busyOverlayStyle, borderColor: "#8b3333", color: "#ffcaca" }}>
+          Error: {error}
+        </div>
+      )}
       {connectionPickActive && (
         <div style={{
           position: "absolute",
@@ -724,3 +750,30 @@ export function Viewer() {
     </div>
   );
 }
+
+const busyOverlayStyle: React.CSSProperties = {
+  position: "absolute",
+  left: "50%",
+  top: 18,
+  transform: "translateX(-50%)",
+  zIndex: 4,
+  display: "flex",
+  alignItems: "center",
+  gap: 10,
+  padding: "10px 14px",
+  borderRadius: 10,
+  background: "rgba(9, 13, 16, 0.9)",
+  border: "1px solid rgba(255, 195, 107, 0.45)",
+  color: "#f1efe8",
+  boxShadow: "0 10px 30px rgba(0,0,0,0.35)",
+  pointerEvents: "none",
+};
+
+const spinnerStyle: React.CSSProperties = {
+  width: 18,
+  height: 18,
+  borderRadius: "50%",
+  border: "2px solid rgba(255,255,255,0.25)",
+  borderTopColor: "#ffc36b",
+  animation: "spin 0.8s linear infinite",
+};
