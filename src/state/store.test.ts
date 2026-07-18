@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { defaultParams, type ImportedMesh } from "../cad/types";
+import { computeCombinedAabbWithFlush } from "../cad/flush";
+import { itemWorldAabb } from "../cad/layout";
+import { primitiveAabb } from "../cad/presets";
+import { buildEnclosureGeometry } from "../cad/shell";
 import { useStore } from "./store";
 
 function center(mesh: ImportedMesh, position: [number, number, number]): [number, number, number] {
@@ -43,6 +47,27 @@ describe("useStore flipImportItem", () => {
     expect(flipped.meshVersion).toBe(1);
     expect(Array.from(flipped.mesh.positions)).not.toEqual(Array.from(initial.mesh.positions));
     expect(center(flipped.mesh, flipped.position)).toEqual(center(initial.mesh, initial.position));
+  });
+});
+
+describe("useStore flushItem", () => {
+  it("moves a part to the actual reinforced exterior, not the nominal body plane", () => {
+    useStore.getState().addPrimitive("Box", { kind: "box", size: [20, 20, 10] });
+    const before = useStore.getState().items[0];
+    if (before.kind !== "primitive") throw new Error("expected primitive item");
+    const localAabb = primitiveAabb(before.primitive);
+    const beforeWorld = itemWorldAabb(before);
+    const combined = computeCombinedAabbWithFlush(
+      [{ aabb: localAabb, rotation: before.rotation, flushFace: "+x" }],
+      [beforeWorld],
+    );
+    const geom = buildEnclosureGeometry(combined, useStore.getState().params);
+
+    useStore.getState().flushItem(before.id, "+x");
+    const afterWorld = itemWorldAabb(useStore.getState().items[0]);
+
+    expect(afterWorld.max[0]).toBeCloseTo(geom.interfaceOuter.max[0]);
+    expect(afterWorld.max[0]).toBeGreaterThan(geom.outer.max[0]);
   });
 });
 

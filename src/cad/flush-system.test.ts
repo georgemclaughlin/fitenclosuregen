@@ -74,13 +74,13 @@ describe("flush system: single 20×10×6 box", () => {
     const storeCombined = computeCombinedAabbWithFlush([storeItem], [preFlushWorld]);
     const storeGeom = buildEnclosureGeometry(storeCombined, params);
 
-    // Store moves item so its +x edge = outer.max[x].
-    const delta = storeGeom.outer.max[0] - preFlushWorld.max[0];
+    // Store moves item so its +x edge reaches the actual reinforced exterior.
+    const delta = storeGeom.interfaceOuter.max[0] - preFlushWorld.max[0];
     const newPos: Vec3 = [delta, 0, 0];
     const postFlushWorld = worldAabb(newPos);
 
     // Item's +x edge should be at the outer wall.
-    expect(postFlushWorld.max[0]).toBeCloseTo(storeGeom.outer.max[0]);
+    expect(postFlushWorld.max[0]).toBeCloseTo(storeGeom.interfaceOuter.max[0]);
 
     // Step 2: worker sees item at flushed position.
     const workerItem = makeItem(newPos, "+x");
@@ -88,15 +88,14 @@ describe("flush system: single 20×10×6 box", () => {
     const workerGeom = buildEnclosureGeometry(workerCombined, params);
 
     // ── KEY INVARIANT: flushed side outer wall matches store ────────
-    expect(workerGeom.outer.max[0]).toBeCloseTo(storeGeom.outer.max[0]);
+    expect(workerGeom.interfaceOuter.max[0]).toBeCloseTo(storeGeom.interfaceOuter.max[0]);
 
     // ── KEY INVARIANT: item is at the outer wall ────────────────────
-    expect(postFlushWorld.max[0]).toBeCloseTo(workerGeom.outer.max[0]);
+    expect(postFlushWorld.max[0]).toBeCloseTo(workerGeom.interfaceOuter.max[0]);
 
     // ── KEY INVARIANT: opposite side is tight around shifted item ───
-    // Wall thickness on -x side should be clearance + wall = 2.5.
-    const minusXWall = postFlushWorld.min[0] - workerGeom.outer.min[0];
-    expect(minusXWall).toBeCloseTo(params.clearance + params.wall);
+    const minusXWall = postFlushWorld.min[0] - workerGeom.interfaceOuter.min[0];
+    expect(minusXWall).toBeCloseTo(storeGeom.interfaceOuter.max[0] - preFlushWorld.max[0]);
 
     // ── Cavity should NOT have extra space on -x side ──────────────
     const pocket = computeCavityPocket(
@@ -114,22 +113,22 @@ describe("flush system: single 20×10×6 box", () => {
     const storeCombined = computeCombinedAabbWithFlush([storeItem], [preFlushWorld]);
     const storeGeom = buildEnclosureGeometry(storeCombined, params);
 
-    const delta = storeGeom.outer.min[0] - preFlushWorld.min[0];
+    const delta = storeGeom.interfaceOuter.min[0] - preFlushWorld.min[0];
     const newPos: Vec3 = [delta, 0, 0];
     const postFlushWorld = worldAabb(newPos);
 
-    expect(postFlushWorld.min[0]).toBeCloseTo(storeGeom.outer.min[0]);
+    expect(postFlushWorld.min[0]).toBeCloseTo(storeGeom.interfaceOuter.min[0]);
 
     const workerItem = makeItem(newPos, "-x");
     const workerCombined = computeCombinedAabbWithFlush([workerItem], [postFlushWorld]);
     const workerGeom = buildEnclosureGeometry(workerCombined, params);
 
     // Flushed side: item -x edge at outer -x wall.
-    expect(postFlushWorld.min[0]).toBeCloseTo(workerGeom.outer.min[0]);
+    expect(postFlushWorld.min[0]).toBeCloseTo(workerGeom.interfaceOuter.min[0]);
 
     // Opposite side: tight fit on +x.
-    const plusXWall = workerGeom.outer.max[0] - postFlushWorld.max[0];
-    expect(plusXWall).toBeCloseTo(params.clearance + params.wall);
+    const plusXWall = workerGeom.interfaceOuter.max[0] - postFlushWorld.max[0];
+    expect(plusXWall).toBeCloseTo(preFlushWorld.min[0] - storeGeom.interfaceOuter.min[0]);
   });
 
   it("flush +y: y-axis flush, x-axis unchanged", () => {
@@ -138,7 +137,7 @@ describe("flush system: single 20×10×6 box", () => {
     const storeCombined = computeCombinedAabbWithFlush([storeItem], [preFlushWorld]);
     const storeGeom = buildEnclosureGeometry(storeCombined, params);
 
-    const delta = storeGeom.outer.max[1] - preFlushWorld.max[1];
+    const delta = storeGeom.interfaceOuter.max[1] - preFlushWorld.max[1];
     const newPos: Vec3 = [0, delta, 0];
     const postFlushWorld = worldAabb(newPos);
 
@@ -147,9 +146,9 @@ describe("flush system: single 20×10×6 box", () => {
     const workerGeom = buildEnclosureGeometry(workerCombined, params);
 
     // Y: item at outer wall, opposite tight.
-    expect(postFlushWorld.max[1]).toBeCloseTo(workerGeom.outer.max[1]);
-    const minusYWall = postFlushWorld.min[1] - workerGeom.outer.min[1];
-    expect(minusYWall).toBeCloseTo(params.clearance + params.wall);
+    expect(postFlushWorld.max[1]).toBeCloseTo(workerGeom.interfaceOuter.max[1]);
+    const minusYWall = postFlushWorld.min[1] - workerGeom.interfaceOuter.min[1];
+    expect(minusYWall).toBeCloseTo(storeGeom.interfaceOuter.max[1] - preFlushWorld.max[1]);
 
     // X: unchanged from baseline.
     expect(workerGeom.outer.min[0]).toBeCloseTo(-12.5);
@@ -193,7 +192,7 @@ describe("flush system: asymmetric local AABB (not centered at origin)", () => {
     const storeCombined = computeCombinedAabbWithFlush([storeItem], [preWorld]);
     const storeGeom = buildEnclosureGeometry(storeCombined, params);
 
-    const delta = storeGeom.outer.max[0] - preWorld.max[0];
+    const delta = storeGeom.interfaceOuter.max[0] - preWorld.max[0];
     const newPos: Vec3 = [delta, 0, 0];
     const postWorld = transformedAabb(asymAabb, [0, 0, 0], newPos);
 
@@ -202,10 +201,10 @@ describe("flush system: asymmetric local AABB (not centered at origin)", () => {
     const workerGeom = buildEnclosureGeometry(workerCombined, params);
 
     // +x: item at outer wall.
-    expect(postWorld.max[0]).toBeCloseTo(workerGeom.outer.max[0]);
+    expect(postWorld.max[0]).toBeCloseTo(workerGeom.interfaceOuter.max[0]);
 
     // -x: tight around shifted item.
-    const minusXWall = postWorld.min[0] - workerGeom.outer.min[0];
-    expect(minusXWall).toBeCloseTo(params.clearance + params.wall);
+    const minusXWall = postWorld.min[0] - workerGeom.interfaceOuter.min[0];
+    expect(minusXWall).toBeCloseTo(storeGeom.interfaceOuter.max[0] - preWorld.max[0]);
   });
 });

@@ -373,9 +373,9 @@ export const useStore = create<AppState>((set, get) => {
       const myAabb = allAabbs[idx];
       const pos: Vec3 = [s.items[idx].position[0], s.items[idx].position[1], s.items[idx].position[2]];
       if (sign > 0) {
-        pos[axis] += geom.outer.max[axis] - myAabb.max[axis];
+        pos[axis] += geom.interfaceOuter.max[axis] - myAabb.max[axis];
       } else {
-        pos[axis] += geom.outer.min[axis] - myAabb.min[axis];
+        pos[axis] += geom.interfaceOuter.min[axis] - myAabb.min[axis];
       }
       return {
         items: s.items.map((it) => it.id === id ? { ...it, position: pos, flushFace: face } : it),

@@ -650,7 +650,7 @@ function flushCutoutSlab(face: FaceAxis, outer: AABB, wall: number): AABB {
   }
 }
 
-function extendCutoutToOuter(
+function extendCutoutThroughReinforcement(
   M: ManifoldNs,
   cutout: ManifoldInst,
   face: FaceAxis,
@@ -661,9 +661,11 @@ function extendCutoutToOuter(
   const sign = faceSignNum(face);
   const extension = outerExtensionForFace(face, bodyOuter, reinforcedOuter);
   if (extension <= 1e-6) return cutout;
-  const offset: Vec3 = [0, 0, 0];
-  offset[axis] = sign * (extension + 0.1);
-  return M.Manifold.hull([cutout, cutout.translate(offset)]);
+  const outward: Vec3 = [0, 0, 0];
+  const inward: Vec3 = [0, 0, 0];
+  outward[axis] = sign * (extension + 0.1);
+  inward[axis] = -sign * (extension + 0.1);
+  return M.Manifold.hull([cutout, cutout.translate(outward), cutout.translate(inward)]);
 }
 
 function outerExtensionForFace(face: FaceAxis, bodyOuter: AABB, reinforcedOuter: AABB): number {
@@ -1458,7 +1460,7 @@ export async function generate(req: GenerateRequest): Promise<GenerateResult> {
   };
   const clippedCutouts = perItemCutout.map((cutout) => cutout && ({
     face: cutout.face,
-    manifold: extendCutoutToOuter(
+    manifold: extendCutoutThroughReinforcement(
       M, cutout.manifold, cutout.face, geom.outer, reinforcedOuter,
     ).intersect(
       boxFromAabb(Manifold, flushCutoutSlab(
@@ -1631,7 +1633,7 @@ export async function generate(req: GenerateRequest): Promise<GenerateResult> {
   for (const c of cutouts) {
     const cutout = manualCutoutManifold(M, c, geom.outer, params.wall);
     if (cutout) {
-      manualCutouts.push(extendCutoutToOuter(M, cutout, c.face, geom.outer, reinforcedOuter));
+      manualCutouts.push(extendCutoutThroughReinforcement(M, cutout, c.face, geom.outer, reinforcedOuter));
     }
   }
   const manualCutoutHull = unionAll(Manifold, manualCutouts);

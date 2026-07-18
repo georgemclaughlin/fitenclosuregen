@@ -83,9 +83,9 @@ test("single box flush +x: flushed axis shrinks, non-flushed unchanged", async (
   expectClose(afterSize[1], beforeSize[1], 0.1, "Y depth");
   expectClose(afterSize[2], beforeSize[2], 0.1, "Z height");
 
-  // X should shrink by clearance+wall = 2.8 (opposite side tightens).
+  // X should shrink by the full reinforced exterior margin = 4.45 mm.
   expect(afterSize[0]).toBeLessThan(beforeSize[0] - 0.5);
-  expectClose(afterSize[0], beforeSize[0] - 2.8, 0.5, "X width shrank");
+  expectClose(afterSize[0], beforeSize[0] - 4.45, 0.5, "X width shrank");
 });
 
 test("single box flush -y: flushed axis shrinks, non-flushed unchanged", async ({ page }) => {

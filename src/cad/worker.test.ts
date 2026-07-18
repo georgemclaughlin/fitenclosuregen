@@ -109,10 +109,10 @@ function flushPosition(
   const combined = computeCombinedAabbWithFlush([{ aabb: item.aabb, rotation: item.rotation, flushFace: face }], [preWorld]);
   const geom = buildEnclosureGeometry(combined, enclosureParams);
   const next: Vec3 = [...item.position];
-  if (face === "+x") next[0] += geom.outer.max[0] - preWorld.max[0];
-  else if (face === "-x") next[0] += geom.outer.min[0] - preWorld.min[0];
-  else if (face === "+y") next[1] += geom.outer.max[1] - preWorld.max[1];
-  else next[1] += geom.outer.min[1] - preWorld.min[1];
+  if (face === "+x") next[0] += geom.interfaceOuter.max[0] - preWorld.max[0];
+  else if (face === "-x") next[0] += geom.interfaceOuter.min[0] - preWorld.min[0];
+  else if (face === "+y") next[1] += geom.interfaceOuter.max[1] - preWorld.max[1];
+  else next[1] += geom.interfaceOuter.min[1] - preWorld.min[1];
   return next;
 }
 
