@@ -6,8 +6,10 @@ import { useStore } from "./state/store";
 import { generate, GenerationSupersededError } from "./cad/manifoldClient";
 import { primitiveAabb } from "./cad/presets";
 import type { ItemRequest } from "./cad/types";
+import { useProjectPersistence } from "./project/useProjectPersistence";
 
 export function App() {
+  const projectReady = useProjectPersistence();
   const items = useStore((s) => s.items);
   const params = useStore((s) => s.params);
   const cutouts = useStore((s) => s.cutouts);
@@ -17,6 +19,10 @@ export function App() {
   const setError = useStore((s) => s.setError);
 
   useEffect(() => {
+    if (!projectReady) {
+      setGenerating(false);
+      return;
+    }
     if (items.length === 0) {
       setResult(null);
       setGenerating(false);
@@ -66,7 +72,7 @@ export function App() {
       cancelled = true;
       clearTimeout(t);
     };
-  }, [items, params, cutouts, connections, setResult, setGenerating, setError]);
+  }, [projectReady, items, params, cutouts, connections, setResult, setGenerating, setError]);
 
   return (
     <div className="app-shell">
@@ -103,7 +109,7 @@ export function App() {
       `}</style>
       <div className="viewer-pane">
         <Viewer />
-        {items.length === 0 && <FileDrop />}
+        {projectReady && items.length === 0 && <FileDrop />}
       </div>
       <Sidebar />
     </div>

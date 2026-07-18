@@ -19,7 +19,7 @@ test("flipped STEP import flushed to -Y keeps valid base reliefs", async ({ page
   });
 
   await page.goto("/");
-  await page.locator("input[type='file']").first().setInputFiles(fixture!);
+  await page.locator('input[accept^=".stl"]').first().setInputFiles(fixture!);
   await expect(page.getByText(/^Ready\.$/)).toBeVisible({ timeout: 60_000 });
 
   await page.getByRole("button", { name: "Flip Y", exact: true }).click();

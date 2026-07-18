@@ -22,6 +22,7 @@ import { itemWorldAabb, placeAlongside } from "../cad/layout";
 import { primitiveAabb, PRIMITIVE_DEFAULTS } from "../cad/presets";
 import { buildEnclosureGeometry } from "../cad/shell";
 import type { AABB } from "../cad/types";
+import type { ProjectLoadOptions, ProjectSnapshot } from "../project/types";
 
 type FlipAxis = 0 | 1 | 2;
 
@@ -66,7 +67,8 @@ function aabbCenter(aabb: AABB): Vec3 {
   ];
 }
 
-interface AppState {
+export interface AppState {
+  projectName: string;
   items: Item[];
   /** Primary (first) item controls the enclosure reference frame for UI. */
   params: EnclosureParams;
@@ -87,7 +89,14 @@ interface AppState {
   showShellEdges: boolean;
   debugVisibility: Record<DebugMeshKey, boolean>;
   shellOpacity: number;
+  canUndo: boolean;
+  canRedo: boolean;
 
+  setProjectName: (name: string) => void;
+  newProject: () => void;
+  loadProject: (snapshot: ProjectSnapshot, options?: ProjectLoadOptions) => void;
+  undo: () => void;
+  redo: () => void;
   addImport: (name: string, mesh: ImportedMesh) => void;
   addPrimitive: (name: string, primitive: Primitive) => void;
   removeItem: (id: string) => void;
@@ -137,7 +146,70 @@ function makePrimitiveItem(name: string, primitive: Primitive, position: Vec3): 
   return { id: crypto.randomUUID(), kind: "primitive", name, primitive, position, rotation: [0, 0, 0] };
 }
 
-export const useStore = create<AppState>((set) => ({
+const HISTORY_LIMIT = 100;
+const HISTORY_COALESCE_MS = 750;
+let historyPast: ProjectSnapshot[] = [];
+let historyFuture: ProjectSnapshot[] = [];
+let lastHistory: { key: string; at: number } | null = null;
+
+export function captureProjectSnapshot(state: Pick<AppState, "projectName" | "items" | "params" | "cutouts" | "connections">): ProjectSnapshot {
+  return {
+    name: state.projectName,
+    items: state.items,
+    params: state.params,
+    cutouts: state.cutouts,
+    connections: state.connections,
+  };
+}
+
+function resetHistory(): void {
+  historyPast = [];
+  historyFuture = [];
+  lastHistory = null;
+}
+
+type StatePatch = Partial<AppState>;
+
+export const useStore = create<AppState>((set, get) => {
+  const commitProject = (key: string | null, update: (state: AppState) => StatePatch) => {
+    const state = get();
+    const patch = update(state);
+    const changed = (patch.projectName !== undefined && patch.projectName !== state.projectName)
+      || (patch.items !== undefined && patch.items !== state.items)
+      || (patch.params !== undefined && patch.params !== state.params)
+      || (patch.cutouts !== undefined && patch.cutouts !== state.cutouts)
+      || (patch.connections !== undefined && patch.connections !== state.connections);
+    if (!changed) {
+      set(patch);
+      return;
+    }
+
+    const now = Date.now();
+    const coalesced = Boolean(
+      key && lastHistory && lastHistory.key === key && now - lastHistory.at <= HISTORY_COALESCE_MS,
+    );
+    if (!coalesced) {
+      historyPast.push(captureProjectSnapshot(state));
+      if (historyPast.length > HISTORY_LIMIT) historyPast.shift();
+    }
+    historyFuture = [];
+    lastHistory = key ? { key, at: now } : null;
+    set({ ...patch, canUndo: historyPast.length > 0, canRedo: false });
+  };
+
+  const applySnapshot = (snapshot: ProjectSnapshot) => ({
+    projectName: snapshot.name,
+    items: snapshot.items,
+    params: snapshot.params,
+    cutouts: snapshot.cutouts,
+    connections: snapshot.connections,
+    connectionPick: { active: false, first: null } as ConnectionPickState,
+    result: null,
+    error: null,
+  });
+
+  return ({
+  projectName: "Untitled enclosure",
   items: [],
   params: defaultParams,
   cutouts: [],
@@ -163,34 +235,78 @@ export const useStore = create<AppState>((set) => ({
     connection: true,
   },
   shellOpacity: 0.5,
+  canUndo: false,
+  canRedo: false,
 
-  addImport: (name, mesh) => set((s) => ({
+  setProjectName: (name) => commitProject("project:name", () => ({ projectName: name })),
+  newProject: () => commitProject(null, () => ({
+    projectName: "Untitled enclosure",
+    items: [],
+    params: { ...defaultParams },
+    cutouts: [],
+    connections: [],
+    connectionPick: { active: false, first: null },
+    result: null,
+    error: null,
+  })),
+  loadProject: (snapshot, options) => {
+    if (options?.recordHistory === false) {
+      resetHistory();
+      set({ ...applySnapshot(snapshot), canUndo: false, canRedo: false });
+      return;
+    }
+    commitProject(null, () => applySnapshot(snapshot));
+  },
+  undo: () => {
+    const previous = historyPast.pop();
+    if (!previous) return;
+    historyFuture.push(captureProjectSnapshot(get()));
+    lastHistory = null;
+    set({
+      ...applySnapshot(previous),
+      canUndo: historyPast.length > 0,
+      canRedo: true,
+    });
+  },
+  redo: () => {
+    const next = historyFuture.pop();
+    if (!next) return;
+    historyPast.push(captureProjectSnapshot(get()));
+    lastHistory = null;
+    set({
+      ...applySnapshot(next),
+      canUndo: true,
+      canRedo: historyFuture.length > 0,
+    });
+  },
+
+  addImport: (name, mesh) => commitProject(null, (s) => ({
     items: [...s.items, makeImportItem(name, mesh, placeAlongside(s.items, mesh.aabb, s.params.clearance))],
   })),
-  addPrimitive: (name, primitive) => set((s) => ({
+  addPrimitive: (name, primitive) => commitProject(null, (s) => ({
     items: [...s.items, makePrimitiveItem(name, primitive, placeAlongside(s.items, primitiveAabb(primitive), s.params.clearance))],
   })),
-  removeItem: (id) => set((s) => ({
+  removeItem: (id) => commitProject(null, (s) => ({
     items: s.items.filter((it) => it.id !== id),
     connections: s.connections.filter((c) => c.a.itemId !== id && c.b.itemId !== id),
     connectionPick: s.connectionPick.first?.endpoint.itemId === id ? { active: false, first: null } : s.connectionPick,
   })),
   setItemPosition: (id, position) =>
-    set((s) => ({ items: s.items.map((it) => (it.id === id ? { ...it, position } : it)) })),
+    commitProject(`item:${id}:position`, (s) => ({ items: s.items.map((it) => (it.id === id ? { ...it, position } : it)) })),
   setItemRotation: (id, rotation) =>
-    set((s) => ({ items: s.items.map((it) => (it.id === id ? { ...it, rotation } : it)) })),
+    commitProject(`item:${id}:rotation`, (s) => ({ items: s.items.map((it) => (it.id === id ? { ...it, rotation } : it)) })),
   renameItem: (id, name) =>
-    set((s) => ({ items: s.items.map((it) => (it.id === id ? { ...it, name } : it)) })),
+    commitProject(`item:${id}:name`, (s) => ({ items: s.items.map((it) => (it.id === id ? { ...it, name } : it)) })),
   setPrimitive: (id, primitive) =>
-    set((s) => ({
+    commitProject(`item:${id}:primitive`, (s) => ({
       items: s.items.map((it) =>
         it.id === id && it.kind === "primitive" ? { ...it, primitive } : it,
       ),
     })),
   setItemFitClearance: (id, fitClearance) =>
-    set((s) => ({ items: s.items.map((it) => (it.id === id ? { ...it, fitClearance } : it)) })),
+    commitProject(`item:${id}:clearance`, (s) => ({ items: s.items.map((it) => (it.id === id ? { ...it, fitClearance } : it)) })),
   flipImportItem: (id, axis) =>
-    set((s) => ({
+    commitProject(null, (s) => ({
       items: s.items.map((it) => {
         if (it.id !== id || it.kind !== "import") return it;
         const nextMesh = flipImportedMesh(it.mesh, axis);
@@ -205,9 +321,9 @@ export const useStore = create<AppState>((set) => ({
       }),
     })),
   flushItem: (id, face) =>
-    set((s) => {
+    commitProject(null, (s) => {
       const idx = s.items.findIndex((it) => it.id === id);
-      if (idx < 0) return s;
+      if (idx < 0) return {};
       const allAabbs = s.items.map(itemWorldAabb);
       const axis = faceAxisNum(face);
       const sign = faceSignNum(face);
@@ -266,21 +382,21 @@ export const useStore = create<AppState>((set) => ({
       };
     }),
   unflushItem: (id) =>
-    set((s) => ({
+    commitProject(null, (s) => ({
       items: s.items.map((it) => it.id === id ? { ...it, flushFace: null } : it),
     })),
-  clearItems: () => set({ items: [], cutouts: [], connections: [], connectionPick: { active: false, first: null } }),
+  clearItems: () => commitProject(null, () => ({ items: [], cutouts: [], connections: [], connectionPick: { active: false, first: null } })),
 
-  setParam: (k, v) => set((s) => ({ params: { ...s.params, [k]: v } })),
-  setParams: (p) => set({ params: p }),
-  addCutout: (c) => set((s) => ({ cutouts: [...s.cutouts, c] })),
+  setParam: (k, v) => commitProject(`param:${String(k)}`, (s) => ({ params: { ...s.params, [k]: v } })),
+  setParams: (p) => commitProject(null, () => ({ params: p })),
+  addCutout: (c) => commitProject(null, (s) => ({ cutouts: [...s.cutouts, c] })),
   updateCutout: (id, patch) =>
-    set((s) => ({ cutouts: s.cutouts.map((c) => (c.id === id ? { ...c, ...patch } : c)) })),
-  removeCutout: (id) => set((s) => ({ cutouts: s.cutouts.filter((c) => c.id !== id) })),
-  addConnection: (c) => set((s) => ({ connections: [...s.connections, c] })),
+    commitProject(`cutout:${id}:${Object.keys(patch).sort().join(",")}`, (s) => ({ cutouts: s.cutouts.map((c) => (c.id === id ? { ...c, ...patch } : c)) })),
+  removeCutout: (id) => commitProject(null, (s) => ({ cutouts: s.cutouts.filter((c) => c.id !== id) })),
+  addConnection: (c) => commitProject(null, (s) => ({ connections: [...s.connections, c] })),
   updateConnection: (id, patch) =>
-    set((s) => ({ connections: s.connections.map((c) => (c.id === id ? { ...c, ...patch } : c)) })),
-  removeConnection: (id) => set((s) => ({ connections: s.connections.filter((c) => c.id !== id) })),
+    commitProject(`connection:${id}:${Object.keys(patch).sort().join(",")}`, (s) => ({ connections: s.connections.map((c) => (c.id === id ? { ...c, ...patch } : c)) })),
+  removeConnection: (id) => commitProject(null, (s) => ({ connections: s.connections.filter((c) => c.id !== id) })),
   beginConnectionPick: () => set({ connectionPick: { active: true, first: null }, showComponent: true }),
   setConnectionPickFirst: (p) => set({ connectionPick: { active: true, first: p } }),
   cancelConnectionPick: () => set({ connectionPick: { active: false, first: null } }),
@@ -291,7 +407,8 @@ export const useStore = create<AppState>((set) => ({
   setVisibility: (k, v) => set({ [k]: v } as Partial<AppState>),
   setDebugVisibility: (k, v) => set((s) => ({ debugVisibility: { ...s.debugVisibility, [k]: v } })),
   setShellOpacity: (v) => set({ shellOpacity: v }),
-}));
+  });
+});
 
 /** World-space AABBs of an item's constituent parts: one per connected
  *  component for imports (pin headers, PCB, connectors...), one total for

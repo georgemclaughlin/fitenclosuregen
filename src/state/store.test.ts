@@ -11,18 +11,13 @@ function center(mesh: ImportedMesh, position: [number, number, number]): [number
 }
 
 beforeEach(() => {
-  useStore.setState({
+  useStore.getState().loadProject({
+    name: "Test project",
     items: [],
     params: defaultParams,
     cutouts: [],
-    result: null,
-    generating: false,
-    error: null,
-    showBase: true,
-    showLid: true,
-    showComponent: true,
-    shellOpacity: 0.35,
-  });
+    connections: [],
+  }, { recordHistory: false });
 });
 
 describe("useStore flipImportItem", () => {
@@ -48,5 +43,45 @@ describe("useStore flipImportItem", () => {
     expect(flipped.meshVersion).toBe(1);
     expect(Array.from(flipped.mesh.positions)).not.toEqual(Array.from(initial.mesh.positions));
     expect(center(flipped.mesh, flipped.position)).toEqual(center(initial.mesh, initial.position));
+  });
+});
+
+describe("project history", () => {
+  it("undoes and redoes discrete edits", () => {
+    useStore.getState().addPrimitive("Box", { kind: "box", size: [10, 10, 5] });
+    expect(useStore.getState().items).toHaveLength(1);
+    expect(useStore.getState().canUndo).toBe(true);
+
+    useStore.getState().undo();
+    expect(useStore.getState().items).toHaveLength(0);
+    expect(useStore.getState().canRedo).toBe(true);
+
+    useStore.getState().redo();
+    expect(useStore.getState().items).toHaveLength(1);
+  });
+
+  it("coalesces repeated edits to the same field", () => {
+    useStore.getState().addPrimitive("Box", { kind: "box", size: [10, 10, 5] });
+    const item = useStore.getState().items[0];
+    useStore.getState().setItemPosition(item.id, [1, 0, 0]);
+    useStore.getState().setItemPosition(item.id, [2, 0, 0]);
+    useStore.getState().setItemPosition(item.id, [3, 0, 0]);
+
+    useStore.getState().undo();
+    expect(useStore.getState().items[0].position).toEqual([0, 0, 0]);
+    useStore.getState().undo();
+    expect(useStore.getState().items).toHaveLength(0);
+  });
+
+  it("can undo starting a new project", () => {
+    useStore.getState().addPrimitive("Box", { kind: "box", size: [10, 10, 5] });
+    useStore.getState().setProjectName("Saved design");
+    useStore.getState().newProject();
+    expect(useStore.getState().items).toHaveLength(0);
+    expect(useStore.getState().projectName).toBe("Untitled enclosure");
+
+    useStore.getState().undo();
+    expect(useStore.getState().items).toHaveLength(1);
+    expect(useStore.getState().projectName).toBe("Saved design");
   });
 });

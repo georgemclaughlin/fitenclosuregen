@@ -16,6 +16,9 @@ It is built around a Vite/React UI, a `three.js` preview, and a worker-backed CS
   move, rotate, stack relative to other items, flip imports, and flush selected items to `±X` / `±Y` walls.
 - Supports manual face cutouts and STL export for:
   base, lid, or a combined print layout.
+- Saves portable `.dropfit` projects with imported mesh data embedded.
+- Autosaves the active project in the browser and restores it after reload.
+- Supports undo and redo for project edits, including coalesced numeric changes.
 
 ## Setup
 
@@ -45,7 +48,8 @@ npm run e2e
 2. Arrange items with position, rotation, stack, flip, or flush controls.
 3. Tune enclosure parameters in the sidebar.
 4. Add any required cutouts.
-5. Export `base.stl`, `lid.stl`, or `combined.stl`.
+5. Save a reusable `.dropfit` project when needed.
+6. Export `base.stl`, `lid.stl`, or `combined.stl`.
 
 ## Supported Inputs
 
@@ -58,6 +62,7 @@ npm run e2e
 
 - Enclosure sizing is currently driven by transformed AABBs and per-part hulls, not exact B-rep mating.
 - Flush placement is currently exposed in the UI for side walls only: `+x`, `-x`, `+y`, `-y`.
+- Project autosaves live in the current browser profile. Use a `.dropfit` file to move or back up a project.
 - Playwright generates deterministic STL, OBJ, and 3MF fixtures and uses the OCCT package's small STEP fixture.
 - The production bundle is currently large because the app ships CAD and viewer dependencies into the browser.
 

@@ -1,33 +1,24 @@
 # Roadmap
 
-The reliability, test isolation, dependency, and initial-load work identified in the July 2026 review is implemented. The items below are intentionally deferred to the next product and maintainability phase.
+The reliability, test isolation, dependency, initial-load, project persistence, and undo/redo work identified in the July 2026 review is implemented. The items below are intentionally deferred to the next product and maintainability phase.
 
 ## Product features
 
-1. Project persistence
-   - Save and open complete projects, including imported meshes, poses, case parameters, cutouts, and connections.
-   - Add browser autosave and recovery after refresh or a crashed tab.
-   - Define a versioned project-file format with migrations.
-
-2. Undo and redo
-   - Cover item transforms, primitives, flush state, cutouts, connections, and enclosure parameters.
-   - Coalesce repeated slider and press-and-hold edits into single history entries.
-
-3. Mounting and retention
+1. Mounting and retention
    - PCB standoffs and screw bosses.
    - Heat-set insert holes and configurable lid screws.
    - Retention clips and simple component straps.
 
-4. Direct viewport editing
+2. Direct viewport editing
    - Select and transform items in 3D.
    - Place cutouts by clicking a shell face and resize them with handles.
    - Show face-local dimensions and snap cutouts to imported connector bounds.
 
-5. Manufacturability checks
+3. Manufacturability checks
    - Warn about thin remaining walls, cutout/lip collisions, insufficient snap skin, trapped components, and invalid dimensions.
    - Optionally compare the combined layout against a configured printer bed.
 
-6. Richer export
+4. Richer export
    - Export 3MF with named base and lid objects and project metadata.
    - Include a compact dimensions and print-orientation report.
 

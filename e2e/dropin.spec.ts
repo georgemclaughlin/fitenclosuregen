@@ -15,7 +15,7 @@ test("STEP import with box below generates without errors", async ({ page }) => 
   await expect(page.getByText("Drop a model file")).toBeVisible();
 
   // Import STEP file.
-  await page.locator('input[type="file"]').first().setInputFiles(fixture!);
+  await page.locator('input[accept^=".stl"]').first().setInputFiles(fixture!);
   await expect(page.getByText(/^Ready\.$/)).toBeVisible({ timeout: 45_000 });
 
   // Add a LiPo 503450 battery box.

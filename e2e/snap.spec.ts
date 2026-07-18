@@ -6,7 +6,7 @@ test("snap-fit tabs and pockets are visible", async ({ page }) => {
   test.skip(!fixture, "no step fixture");
 
   await page.goto("/");
-  await page.locator('input[type="file"]').first().setInputFiles(fixture!);
+  await page.locator('input[accept^=".stl"]').first().setInputFiles(fixture!);
   await expect(page.getByText(/^Ready\.$/)).toBeVisible({ timeout: 45_000 });
 
   // Enable snap-fit.

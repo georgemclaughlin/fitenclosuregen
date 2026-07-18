@@ -6,7 +6,7 @@ test("adding a second item auto-places alongside (no overlap)", async ({ page })
   test.skip(!fixture, "no step fixture");
 
   await page.goto("/");
-  await page.locator('input[type="file"]').first().setInputFiles(fixture!);
+  await page.locator('input[accept^=".stl"]').first().setInputFiles(fixture!);
   await expect(page.getByText(/^Ready\.$/)).toBeVisible({ timeout: 45_000 });
 
   await page.locator("select").first().selectOption({ label: "18650 (cylindrical)" });

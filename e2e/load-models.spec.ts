@@ -22,7 +22,7 @@ async function uploadAndVerify(page: Page, fixture: string) {
   await page.goto("/");
   await expect(page.getByText("Drop a model file")).toBeVisible();
 
-  const fileInput = page.locator('input[type="file"]').first();
+  const fileInput = page.locator('input[accept^=".stl"]').first();
   await fileInput.setInputFiles(fixture);
 
   // Wait for generation to finish; status strip transitions through Generating → Ready.

@@ -9,7 +9,7 @@ test("add imported MCU + battery primitive stacked above", async ({ page }) => {
   await expect(page.getByText("Drop a model file")).toBeVisible();
 
   // The drop zone disappears once we've added anything; use the native file picker first.
-  await page.locator('input[type="file"]').first().setInputFiles(fixture!);
+  await page.locator('input[accept^=".stl"]').first().setInputFiles(fixture!);
   await expect(page.getByText(/^Ready\.$/)).toBeVisible({ timeout: 45_000 });
 
   // Add an 18650 battery via the battery preset dropdown.

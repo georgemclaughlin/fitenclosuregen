@@ -17,6 +17,7 @@ import type {
 import { combineForPrint, downloadStl } from "../io/exporters";
 import { BATTERY_PRESETS, PRIMITIVE_DEFAULTS, primitiveAabb, primitiveSize } from "../cad/presets";
 import { loadComponent } from "../io/loaders";
+import { ProjectControls } from "./ProjectControls";
 
 type NumericParamKey = {
   [K in keyof EnclosureParams]: EnclosureParams[K] extends number ? K : never;
@@ -102,6 +103,10 @@ export function Sidebar() {
           <span style={brandPillStyle}>wire routing</span>
         </div>
       </div>
+
+      <Section title="Project" summary="portable + autosaved">
+        <ProjectControls />
+      </Section>
 
       <Section title="Items" summary={`${items.length} item${items.length === 1 ? "" : "s"}`}>
         <AddControls
