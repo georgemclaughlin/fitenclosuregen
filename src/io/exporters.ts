@@ -1,5 +1,4 @@
 import * as THREE from "three";
-import { STLExporter } from "three-stdlib";
 import type { MeshData } from "../cad/types";
 
 function toGeometry(m: MeshData): THREE.BufferGeometry {
@@ -88,7 +87,8 @@ export function combineForPrint(base: MeshData, lid: MeshData, gap = 5): MeshDat
   ]);
 }
 
-export function downloadStl(mesh: MeshData, filename: string): void {
+export async function downloadStl(mesh: MeshData, filename: string): Promise<void> {
+  const { STLExporter } = await import("three/examples/jsm/exporters/STLExporter.js");
   const geom = toGeometry(placeMeshOnBed(mesh));
   const obj = new THREE.Mesh(geom);
   const exporter = new STLExporter();

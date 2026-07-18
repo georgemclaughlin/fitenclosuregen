@@ -1351,7 +1351,11 @@ export async function generate(req: GenerateRequest): Promise<GenerateResult> {
     const empty: AABB = { min: [-1, -1, -1], max: [1, 1, 1] };
     const geom = buildEnclosureGeometry(empty, params);
     const shell = boxFromAabb(Manifold, geom.outer).subtract(boxFromAabb(Manifold, geom.inner));
-    return { base: toMeshData(shell), lid: toMeshData(shell), outer: geom.outer };
+    const mesh = toMeshData(shell);
+    return Comlink.transfer(
+      { base: mesh, lid: mesh, outer: geom.outer },
+      [mesh.positions.buffer, mesh.indices.buffer],
+    );
   }
 
   // Per-item world AABBs + local-fit cavities. Flushed items additionally
@@ -1659,12 +1663,22 @@ export async function generate(req: GenerateRequest): Promise<GenerateResult> {
     debug.push({ key: "connection", mesh: toMeshData(connectionDebug) });
   }
 
-  return {
+  const result: GenerateResult = {
     base: toMeshData(base),
     lid: toMeshData(lid),
     outer: geom.outer,
     debug,
   };
+  const buffers: Transferable[] = [
+    result.base.positions.buffer,
+    result.base.indices.buffer,
+    result.lid.positions.buffer,
+    result.lid.indices.buffer,
+  ];
+  for (const helper of result.debug ?? []) {
+    buffers.push(helper.mesh.positions.buffer, helper.mesh.indices.buffer);
+  }
+  return Comlink.transfer(result, buffers);
 }
 
 export const api = { generate };

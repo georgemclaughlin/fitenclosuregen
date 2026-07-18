@@ -1,10 +1,9 @@
 import { useEffect } from "react";
-import { Leva } from "leva";
 import { Viewer } from "./ui/Viewer";
 import { Sidebar } from "./ui/Sidebar";
 import { FileDrop } from "./ui/FileDrop";
 import { useStore } from "./state/store";
-import { generate } from "./cad/manifoldClient";
+import { generate, GenerationSupersededError } from "./cad/manifoldClient";
 import { primitiveAabb } from "./cad/presets";
 import type { ItemRequest } from "./cad/types";
 
@@ -56,7 +55,9 @@ export function App() {
         const res = await generate({ items: reqItems, params, cutouts, connections });
         if (!cancelled) setResult(res);
       } catch (e) {
-        if (!cancelled) setError((e as Error).message);
+        if (!cancelled && !(e instanceof GenerationSupersededError)) {
+          setError((e as Error).message);
+        }
       } finally {
         if (!cancelled) setGenerating(false);
       }
@@ -105,7 +106,6 @@ export function App() {
         {items.length === 0 && <FileDrop />}
       </div>
       <Sidebar />
-      <Leva hidden />
     </div>
   );
 }

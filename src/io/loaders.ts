@@ -1,8 +1,4 @@
 import * as THREE from "three";
-import { STLLoader } from "three-stdlib";
-import { OBJLoader } from "three-stdlib";
-import { ThreeMFLoader } from "three-stdlib";
-import { loadStepAsGeometry } from "./stepLoader";
 import { computeAabb } from "../cad/bbox";
 import { connectedComponents } from "../cad/parts";
 import { orientZUp } from "../cad/orient";
@@ -81,21 +77,25 @@ export async function loadComponent(file: File): Promise<LoadedImport> {
   let geom: THREE.BufferGeometry;
   switch (fmt) {
     case "stl": {
+      const { STLLoader } = await import("three/examples/jsm/loaders/STLLoader.js");
       geom = new STLLoader().parse(buf);
       break;
     }
     case "obj": {
+      const { OBJLoader } = await import("three/examples/jsm/loaders/OBJLoader.js");
       const text = new TextDecoder().decode(buf);
       const obj = new OBJLoader().parse(text);
       geom = geometryFromObject(obj);
       break;
     }
     case "3mf": {
+      const { ThreeMFLoader } = await import("three/examples/jsm/loaders/3MFLoader.js");
       const obj = new ThreeMFLoader().parse(buf);
       geom = geometryFromObject(obj);
       break;
     }
     case "step": {
+      const { loadStepAsGeometry } = await import("./stepLoader");
       geom = await loadStepAsGeometry(buf);
       break;
     }

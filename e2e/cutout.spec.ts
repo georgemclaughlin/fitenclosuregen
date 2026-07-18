@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { findFixture } from "./fixtures";
 
-test("inspect cutout on XIAO with -X snap", async ({ page }) => {
+test("inspect flushed STEP cutout with -X snap", async ({ page }) => {
   const fixture = findFixture("step");
   test.skip(!fixture, "no step fixture");
 

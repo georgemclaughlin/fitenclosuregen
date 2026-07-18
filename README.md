@@ -24,6 +24,8 @@ npm install
 npm run dev
 ```
 
+Use Node.js 20.19+ or 22.12+.
+
 Open `http://localhost:5173`.
 
 The `predev` and `prebuild` hooks copy the `occt-import-js` assets into `public/occt`, which is required for STEP import.
@@ -34,7 +36,7 @@ The `predev` and `prebuild` hooks copy the `occt-import-js` assets into `public/
 npm run dev
 npm run build
 npm test
-npx playwright test
+npm run e2e
 ```
 
 ## Workflow
@@ -56,5 +58,9 @@ npx playwright test
 
 - Enclosure sizing is currently driven by transformed AABBs and per-part hulls, not exact B-rep mating.
 - Flush placement is currently exposed in the UI for side walls only: `+x`, `-x`, `+y`, `-y`.
-- Some Playwright specs rely on local fixture models and will skip when those files are not present.
+- Playwright generates deterministic STL, OBJ, and 3MF fixtures and uses the OCCT package's small STEP fixture.
 - The production bundle is currently large because the app ships CAD and viewer dependencies into the browser.
+
+## Roadmap
+
+Deferred product features and maintainability/UI work are tracked in [ROADMAP.md](./ROADMAP.md).

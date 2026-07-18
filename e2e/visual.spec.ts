@@ -2,11 +2,11 @@ import { test, expect } from "@playwright/test";
 import { findFixture } from "./fixtures";
 
 /**
- * Load the T-Display STEP and capture screenshots of the default output from
+ * Load the hermetic STEP fixture and capture screenshots of the default output from
  * multiple angles so we can inspect geometry visually.
  */
 
-test("T-Display default output screenshots", async ({ page }) => {
+test("STEP fixture default output screenshots", async ({ page }) => {
   const fixture = findFixture("step");
   test.skip(!fixture, "no STEP fixture found");
 
