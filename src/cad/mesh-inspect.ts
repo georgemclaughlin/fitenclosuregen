@@ -39,3 +39,31 @@ export function countTrianglesOverlappingAabb(mesh: MeshData, sample: AABB): num
   }
   return hits;
 }
+
+/** True when a point is inside a consistently wound closed triangle mesh. */
+export function meshContainsPoint(mesh: MeshData, point: Vec3): boolean {
+  let solidAngle = 0;
+  const triCount = mesh.indices.length / 3;
+  for (let tri = 0; tri < triCount; tri++) {
+    const vectors = ([0, 1, 2] as const).map((corner) => {
+      const v = triVertex(mesh, tri, corner);
+      return [v[0] - point[0], v[1] - point[1], v[2] - point[2]] as Vec3;
+    });
+    const [a, b, c] = vectors;
+    const la = Math.hypot(...a);
+    const lb = Math.hypot(...b);
+    const lc = Math.hypot(...c);
+    const crossBC: Vec3 = [
+      b[1] * c[2] - b[2] * c[1],
+      b[2] * c[0] - b[0] * c[2],
+      b[0] * c[1] - b[1] * c[0],
+    ];
+    const numerator = a[0] * crossBC[0] + a[1] * crossBC[1] + a[2] * crossBC[2];
+    const ab = a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    const bc = b[0] * c[0] + b[1] * c[1] + b[2] * c[2];
+    const ca = c[0] * a[0] + c[1] * a[1] + c[2] * a[2];
+    const denominator = la * lb * lc + ab * lc + bc * la + ca * lb;
+    solidAngle += 2 * Math.atan2(numerator, denominator);
+  }
+  return Math.abs(solidAngle) > Math.PI * 2;
+}

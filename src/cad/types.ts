@@ -181,8 +181,10 @@ export interface GenerateRequest {
 export interface GenerateResult {
   base: MeshData;
   lid: MeshData;
-  /** AABB of the outer shell, convenient for UI. */
+  /** AABB of the complete generated shell, including local seam reinforcement. */
   outer: AABB;
+  /** Nominal enclosure body before local seam reinforcement. */
+  bodyOuter?: AABB;
   /** Optional helper volumes for visual debugging in the viewer. */
   debug?: DebugMesh[];
 }

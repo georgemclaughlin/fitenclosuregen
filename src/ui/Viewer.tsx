@@ -604,16 +604,17 @@ function VirtualConnections() {
   const params = useStore((s) => s.params);
   const routes = useMemo(() => {
     const byId = new Map(items.map((item) => [item.id, item]));
-    const preferredBounds: AABB | null = result ? {
+    const bodyOuter = result ? (result.bodyOuter ?? result.outer) : null;
+    const preferredBounds: AABB | null = bodyOuter ? {
       min: [
-        result.outer.min[0] + params.wall,
-        result.outer.min[1] + params.wall,
-        result.outer.min[2] + params.floor,
+        bodyOuter.min[0] + params.wall,
+        bodyOuter.min[1] + params.wall,
+        bodyOuter.min[2] + params.floor,
       ],
       max: [
-        result.outer.max[0] - params.wall,
-        result.outer.max[1] - params.wall,
-        result.outer.max[2] - params.wall,
+        bodyOuter.max[0] - params.wall,
+        bodyOuter.max[1] - params.wall,
+        bodyOuter.max[2] - params.wall,
       ],
     } : null;
     const plannedRoutes: Array<{ id: string; points: Vec3[] }> = [];

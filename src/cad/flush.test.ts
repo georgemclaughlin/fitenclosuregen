@@ -196,6 +196,11 @@ describe("computeFlushAccessPocket", () => {
     const cutoutAabb: AABB = { min: [6.2, -1.2, 7.0], max: [9.0, 1.2, 8.0] };
     expect(computeFlushAccessPocket(cutoutAabb, 0.5, 6, inner)).toBeNull();
   });
+
+  it("returns null when the cutout cannot reach the inner wall", () => {
+    const cutoutAabb: AABB = { min: [9.0, -1.2, 1.8], max: [11.0, 1.2, 4.6] };
+    expect(computeFlushAccessPocket(cutoutAabb, 0.5, 6, inner)).toBeNull();
+  });
 });
 
 describe("horizontalOverlap", () => {

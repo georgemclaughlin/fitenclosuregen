@@ -11,6 +11,10 @@ export interface EnclosureGeometry {
   inner: AABB;
   /** Outer shell AABB. */
   outer: AABB;
+  /** Locally reinforced outer AABB around the lid/base seam. */
+  interfaceOuter: AABB;
+  /** Fillet radius for the seam band, capped to preserve corner skin. */
+  interfaceFillet: number;
   /** Horizontal plane Z where the shell is cut into base/lid. */
   splitZ: number;
   /** Tongue ring (on base): outer and inner AABBs defining the ring footprint. */
@@ -29,11 +33,16 @@ export interface EnclosureGeometry {
   snapPockets?: AABB[];
 }
 
+/** Three 0.4 mm extrusion lines: a practical minimum for a durable FDM lip. */
+export const MIN_TONGUE_THICKNESS = 1.2;
+/** Keep at least three extrusion lines outside the lid recess and snap pockets. */
+export const MIN_INTERFACE_SKIN = 1.2;
+
 export function buildEnclosureGeometry(
   comp: AABB,
   p: EnclosureParams,
 ): EnclosureGeometry {
-  const { wall, floor, clearance, lidFrac, lipDepth, lipTol, snapFit, snapSize, snapPlacement } = p;
+  const { wall, floor, clearance, fillet, lidFrac, lipDepth, lipTol, snapFit, snapSize, snapPlacement } = p;
 
   const inner: AABB = {
     min: [comp.min[0] - clearance, comp.min[1] - clearance, comp.min[2] - clearance],
@@ -58,10 +67,6 @@ export function buildEnclosureGeometry(
     outerHeight = outer.max[2] - outer.min[2];
   }
 
-  // Tongue: thin ring centered in the wall, thickness = wall/2.
-  // Distance from inner face to ring center = wall/2 (midline of wall).
-  // Half-thickness of the ring = wall/4. Shrink by lipTol on each side for fit.
-  //
   // Height of the lip is shared by tongue and groove: the groove must be deep
   // enough to swallow the tongue plus vertical play, while still leaving at
   // least `wall` of solid material above the groove so thin lids don't get
@@ -71,55 +76,72 @@ export function buildEnclosureGeometry(
     0,
     Math.min(lipDepth, lidHeight - wall - lipTol),
   );
-  const snapMinSkin = snapFit && snapSize > 0 ? Math.max(0.8, wall * 0.4) : 0;
-  // When snap-fit is on, shift the tongue/groove ring inboard (toward cavity)
-  // to create outboard room for the bead and recess. Without this, on typical
-  // 2 mm walls the recess would punch through the outer wall.
-  const maxRingShift = Math.max(0, wall / 4 + lipTol - 0.05);
-  const ringShift = snapFit && snapSize > 0
-    ? Math.min(snapSize + lipTol + 0.15, maxRingShift)
-    : 0;
-  // Distance from inner cavity face to ring centerline.
-  const ringCenterOff = wall / 2 - ringShift;
+
+  // The old joint centered a wall/2-wide ring in the wall and removed lipTol
+  // from both faces. At the defaults that left only 0.4 mm of plastic. This is
+  // an inward-open rabbet instead: the cavity is one face of both parts, the
+  // tongue has a fixed printable thickness, and tolerance is added once at the
+  // outer mating face. A local seam collar supplies the material needed to keep
+  // the lid skin thick without shrinking the component cavity.
+  const tongueThickness = MIN_TONGUE_THICKNESS;
+  const snapEnabled = snapFit && snapSize > 0 && effectiveLipDepth > 0;
+  const desiredTabOutset = snapEnabled ? Math.max(0.3, snapSize) : 0;
+  const desiredPocketOutset = snapEnabled ? desiredTabOutset + lipTol + 0.15 : 0;
+  const grooveThickness = tongueThickness + lipTol;
+  const requiredInterfaceWall = grooveThickness + desiredPocketOutset + MIN_INTERFACE_SKIN;
+  const interfaceExtra = Math.max(0, requiredInterfaceWall - wall);
+
   // Sink the tongue slightly below the split plane so the exported base is a
   // single watertight solid instead of two coplanar shells touching at z=splitZ.
   const tongueFuseDepth = Math.min(0.05, Math.max(0, effectiveLipDepth * 0.1));
+  const grooveZMax = splitZ + effectiveLipDepth + lipTol;
+  const seamShoulder = Math.max(MIN_TONGUE_THICKNESS, fillet);
+  const interfaceFillet = Math.min(fillet, MIN_INTERFACE_SKIN);
+  const interfaceOuter: AABB = {
+    min: [
+      outer.min[0] - interfaceExtra,
+      outer.min[1] - interfaceExtra,
+      Math.max(outer.min[2], splitZ - seamShoulder),
+    ],
+    max: [
+      outer.max[0] + interfaceExtra,
+      outer.max[1] + interfaceExtra,
+      Math.min(outer.max[2], grooveZMax + seamShoulder),
+    ],
+  };
 
-  const tHalf = wall / 4 - lipTol;
   const tongueOuter: AABB = {
-    min: [inner.min[0] - (ringCenterOff + tHalf), inner.min[1] - (ringCenterOff + tHalf), splitZ - tongueFuseDepth],
-    max: [inner.max[0] + (ringCenterOff + tHalf), inner.max[1] + (ringCenterOff + tHalf), splitZ + effectiveLipDepth],
+    min: [inner.min[0] - tongueThickness, inner.min[1] - tongueThickness, splitZ - tongueFuseDepth],
+    max: [inner.max[0] + tongueThickness, inner.max[1] + tongueThickness, splitZ + effectiveLipDepth],
   };
   const tongueInner: AABB = {
-    min: [inner.min[0] - (ringCenterOff - tHalf), inner.min[1] - (ringCenterOff - tHalf), splitZ - tongueFuseDepth],
-    max: [inner.max[0] + (ringCenterOff - tHalf), inner.max[1] + (ringCenterOff - tHalf), splitZ + effectiveLipDepth],
+    min: [inner.min[0], inner.min[1], splitZ - tongueFuseDepth],
+    max: [inner.max[0], inner.max[1], splitZ + effectiveLipDepth],
   };
 
-  // Groove: mirror of tongue but with lipTol added on all sides, and extra depth.
-  const gHalf = wall / 4 + lipTol;
-  const grooveZMax = splitZ + effectiveLipDepth + lipTol;
+  // The matching recess is open to the cavity, so it cannot leave a fragile
+  // inner annulus. Its one radial clearance is exactly lipTol.
   const grooveOuter: AABB = {
     min: [
-      inner.min[0] - (ringCenterOff + gHalf),
-      inner.min[1] - (ringCenterOff + gHalf),
+      inner.min[0] - grooveThickness,
+      inner.min[1] - grooveThickness,
       splitZ - lipTol,
     ],
     max: [
-      inner.max[0] + (ringCenterOff + gHalf),
-      inner.max[1] + (ringCenterOff + gHalf),
+      inner.max[0] + grooveThickness,
+      inner.max[1] + grooveThickness,
       grooveZMax,
     ],
   };
-  const snapGrooveOpenInset = snapFit && snapSize > 0 ? 0 : ringCenterOff - gHalf;
   const grooveInner: AABB = {
     min: [
-      inner.min[0] - snapGrooveOpenInset,
-      inner.min[1] - snapGrooveOpenInset,
+      inner.min[0],
+      inner.min[1],
       splitZ - lipTol,
     ],
     max: [
-      inner.max[0] + snapGrooveOpenInset,
-      inner.max[1] + snapGrooveOpenInset,
+      inner.max[0],
+      inner.max[1],
       grooveZMax,
     ],
   };
@@ -129,20 +151,20 @@ export function buildEnclosureGeometry(
   // the lid and fit the existing box-based CSG pipeline well.
   let snapTabs: AABB[] | undefined;
   let snapPockets: AABB[] | undefined;
-  if (snapFit && snapSize > 0 && effectiveLipDepth > 0) {
+  if (snapEnabled) {
     const tabAxis = snapPlacement.endsWith("x") ? 0 : 1;
     const crossAxis = tabAxis === 0 ? 1 : 0;
     const placements = snapPlacement.startsWith("both")
       ? ([1, -1] as Array<1 | -1>)
       : ([snapPlacement.startsWith("+") ? 1 : -1] as Array<1 | -1>);
-    const positiveTabRoom = outer.max[tabAxis] - tongueOuter.max[tabAxis];
-    const negativeTabRoom = tongueOuter.min[tabAxis] - outer.min[tabAxis];
-    const positivePocketRoom = outer.max[tabAxis] - grooveOuter.max[tabAxis];
-    const negativePocketRoom = grooveOuter.min[tabAxis] - outer.min[tabAxis];
+    const positiveTabRoom = interfaceOuter.max[tabAxis] - tongueOuter.max[tabAxis];
+    const negativeTabRoom = tongueOuter.min[tabAxis] - interfaceOuter.min[tabAxis];
+    const positivePocketRoom = interfaceOuter.max[tabAxis] - grooveOuter.max[tabAxis];
+    const negativePocketRoom = grooveOuter.min[tabAxis] - interfaceOuter.min[tabAxis];
     const availableTabRoom = Math.min(...placements.map((sign) => sign > 0 ? positiveTabRoom : negativeTabRoom));
     const availablePocketRoom = Math.min(...placements.map((sign) => sign > 0 ? positivePocketRoom : negativePocketRoom));
-    const tabOutset = Math.min(Math.max(0.3, snapSize), Math.max(0, availableTabRoom - 0.2));
-    const pocketOutset = Math.min(tabOutset + lipTol + 0.15, Math.max(0, availablePocketRoom - snapMinSkin));
+    const tabOutset = Math.min(desiredTabOutset, Math.max(0, availableTabRoom - 0.2));
+    const pocketOutset = Math.min(desiredPocketOutset, Math.max(0, availablePocketRoom - MIN_INTERFACE_SKIN));
     const tabHeight = Math.min(Math.max(0.9, effectiveLipDepth * 0.45), effectiveLipDepth - 0.1);
     const tabFuse = Math.min(0.08, tabOutset * 0.4);
     const tongueZMax = splitZ + effectiveLipDepth;
@@ -208,6 +230,8 @@ export function buildEnclosureGeometry(
   return {
     inner,
     outer,
+    interfaceOuter,
+    interfaceFillet,
     splitZ,
     tongueOuter,
     tongueInner,

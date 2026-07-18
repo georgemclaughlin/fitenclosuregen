@@ -650,6 +650,29 @@ function flushCutoutSlab(face: FaceAxis, outer: AABB, wall: number): AABB {
   }
 }
 
+function extendCutoutToOuter(
+  M: ManifoldNs,
+  cutout: ManifoldInst,
+  face: FaceAxis,
+  bodyOuter: AABB,
+  reinforcedOuter: AABB,
+): ManifoldInst {
+  const axis = faceAxisNum(face);
+  const sign = faceSignNum(face);
+  const extension = outerExtensionForFace(face, bodyOuter, reinforcedOuter);
+  if (extension <= 1e-6) return cutout;
+  const offset: Vec3 = [0, 0, 0];
+  offset[axis] = sign * (extension + 0.1);
+  return M.Manifold.hull([cutout, cutout.translate(offset)]);
+}
+
+function outerExtensionForFace(face: FaceAxis, bodyOuter: AABB, reinforcedOuter: AABB): number {
+  const axis = faceAxisNum(face);
+  return faceSignNum(face) > 0
+    ? Math.max(0, reinforcedOuter.max[axis] - bodyOuter.max[axis])
+    : Math.max(0, bodyOuter.min[axis] - reinforcedOuter.min[axis]);
+}
+
 /** Build local-frame (pre-pose) manifolds for an item. */
 function buildItemLocal(
   M: ManifoldNs, item: ItemRequest, clearance: number, wall: number,
@@ -1353,7 +1376,7 @@ export async function generate(req: GenerateRequest): Promise<GenerateResult> {
     const shell = boxFromAabb(Manifold, geom.outer).subtract(boxFromAabb(Manifold, geom.inner));
     const mesh = toMeshData(shell);
     return Comlink.transfer(
-      { base: mesh, lid: mesh, outer: geom.outer },
+      { base: mesh, lid: mesh, outer: geom.outer, bodyOuter: geom.outer },
       [mesh.positions.buffer, mesh.indices.buffer],
     );
   }
@@ -1414,13 +1437,35 @@ export async function generate(req: GenerateRequest): Promise<GenerateResult> {
   const geom = buildEnclosureGeometry(combinedAabb, params);
   const plannedConnections = planConnections(connections, items, geom.inner);
 
-  const outerBox = params.fillet > 0
+  const outerBody = params.fillet > 0
     ? roundedBoxFromAabb(M, geom.outer, params.fillet)
     : boxFromAabb(Manifold, geom.outer);
+  const interfaceBand = geom.interfaceFillet > 0
+    ? roundedBoxFromAabb(M, geom.interfaceOuter, geom.interfaceFillet)
+    : boxFromAabb(Manifold, geom.interfaceOuter);
+  const outerBox = Manifold.union([outerBody, interfaceBand]);
+  const reinforcedOuter: AABB = {
+    min: [
+      Math.min(geom.outer.min[0], geom.interfaceOuter.min[0]),
+      Math.min(geom.outer.min[1], geom.interfaceOuter.min[1]),
+      Math.min(geom.outer.min[2], geom.interfaceOuter.min[2]),
+    ],
+    max: [
+      Math.max(geom.outer.max[0], geom.interfaceOuter.max[0]),
+      Math.max(geom.outer.max[1], geom.interfaceOuter.max[1]),
+      Math.max(geom.outer.max[2], geom.interfaceOuter.max[2]),
+    ],
+  };
   const clippedCutouts = perItemCutout.map((cutout) => cutout && ({
     face: cutout.face,
-    manifold: cutout.manifold.intersect(
-      boxFromAabb(Manifold, flushCutoutSlab(cutout.face, geom.outer, params.wall)),
+    manifold: extendCutoutToOuter(
+      M, cutout.manifold, cutout.face, geom.outer, reinforcedOuter,
+    ).intersect(
+      boxFromAabb(Manifold, flushCutoutSlab(
+        cutout.face,
+        reinforcedOuter,
+        params.wall + outerExtensionForFace(cutout.face, geom.outer, reinforcedOuter),
+      )),
     ),
   }));
 
@@ -1541,7 +1586,7 @@ export async function generate(req: GenerateRequest): Promise<GenerateResult> {
         const reliefBox = boxFromAabb(Manifold, reliefCore);
         cavityBlocks.push(reliefBox);
         reliefDebugBlocks.push(reliefBox);
-        const wallPocket = flushWallPocket(reliefCore, flushFace, geom.outer, geom.inner);
+        const wallPocket = flushWallPocket(reliefCore, flushFace, reinforcedOuter, geom.inner);
         if (wallPocket) {
           const wallBox = boxFromAabb(Manifold, wallPocket);
           cavityBlocks.push(wallBox);
@@ -1585,7 +1630,9 @@ export async function generate(req: GenerateRequest): Promise<GenerateResult> {
   const manualCutouts: ManifoldInst[] = [];
   for (const c of cutouts) {
     const cutout = manualCutoutManifold(M, c, geom.outer, params.wall);
-    if (cutout) manualCutouts.push(cutout);
+    if (cutout) {
+      manualCutouts.push(extendCutoutToOuter(M, cutout, c.face, geom.outer, reinforcedOuter));
+    }
   }
   const manualCutoutHull = unionAll(Manifold, manualCutouts);
 
@@ -1596,17 +1643,17 @@ export async function generate(req: GenerateRequest): Promise<GenerateResult> {
 
   // Split at splitZ.
   const bigSize = Math.max(
-    geom.outer.max[0] - geom.outer.min[0],
-    geom.outer.max[1] - geom.outer.min[1],
-    geom.outer.max[2] - geom.outer.min[2],
+    reinforcedOuter.max[0] - reinforcedOuter.min[0],
+    reinforcedOuter.max[1] - reinforcedOuter.min[1],
+    reinforcedOuter.max[2] - reinforcedOuter.min[2],
   ) * 4;
   const halfBelow = boxFromAabb(Manifold, {
-    min: [geom.outer.min[0] - bigSize, geom.outer.min[1] - bigSize, geom.outer.min[2] - bigSize],
-    max: [geom.outer.max[0] + bigSize, geom.outer.max[1] + bigSize, geom.splitZ],
+    min: [reinforcedOuter.min[0] - bigSize, reinforcedOuter.min[1] - bigSize, reinforcedOuter.min[2] - bigSize],
+    max: [reinforcedOuter.max[0] + bigSize, reinforcedOuter.max[1] + bigSize, geom.splitZ],
   });
   const halfAbove = boxFromAabb(Manifold, {
-    min: [geom.outer.min[0] - bigSize, geom.outer.min[1] - bigSize, geom.splitZ],
-    max: [geom.outer.max[0] + bigSize, geom.outer.max[1] + bigSize, geom.outer.max[2] + bigSize],
+    min: [reinforcedOuter.min[0] - bigSize, reinforcedOuter.min[1] - bigSize, geom.splitZ],
+    max: [reinforcedOuter.max[0] + bigSize, reinforcedOuter.max[1] + bigSize, reinforcedOuter.max[2] + bigSize],
   });
 
   let base: ManifoldInst = shell.intersect(halfBelow);
@@ -1666,7 +1713,8 @@ export async function generate(req: GenerateRequest): Promise<GenerateResult> {
   const result: GenerateResult = {
     base: toMeshData(base),
     lid: toMeshData(lid),
-    outer: geom.outer,
+    outer: reinforcedOuter,
+    bodyOuter: geom.outer,
     debug,
   };
   const buffers: Transferable[] = [

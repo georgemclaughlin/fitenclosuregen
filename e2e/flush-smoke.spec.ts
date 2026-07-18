@@ -132,7 +132,7 @@ test("non-flushed box: symmetric center, valid geometry", async ({ page }) => {
   expectClose(cy, 0, 1, "center Y");
 });
 
-test("flush +x: wall thickness uniform on opposite side", async ({ page }) => {
+test("flush +x: reinforced seam keeps its opposite-side margin", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByText("Drop a model file")).toBeVisible();
   await addBoxAndWaitReady(page);
@@ -152,12 +152,13 @@ test("flush +x: wall thickness uniform on opposite side", async ({ page }) => {
   console.log(`Item moved from x=${origX.toFixed(2)} to x=${newX.toFixed(2)}`);
   console.log(`After bounds x: [${afterBounds.min[0].toFixed(2)}, ${afterBounds.max[0].toFixed(2)}]`);
 
-  // -x wall = item.min.x - outer.min.x should be ~2.8 (clearance+wall).
+  // The base bounds include the local seam reinforcement. At the defaults it
+  // extends 1.65 mm beyond the 2.8 mm clearance + body-wall margin.
   const itemHalfWidth = 10; // 20/2
   const itemMinX = newX - itemHalfWidth;
   const minusXWall = itemMinX - afterBounds.min[0];
   console.log(`-x wall thickness: ${minusXWall.toFixed(2)}`);
-  expectClose(minusXWall, 2.8, 0.5, "-x wall thickness");
+  expectClose(minusXWall, 4.45, 0.5, "-x reinforced seam margin");
 });
 
 test("flush then un-flush: geometry returns to valid state", async ({ page }) => {

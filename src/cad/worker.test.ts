@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { computeAabb, transformedAabb } from "./bbox";
 import { computeCombinedAabbWithFlush } from "./flush";
-import { countTrianglesOverlappingAabb } from "./mesh-inspect";
+import { countTrianglesOverlappingAabb, meshContainsPoint } from "./mesh-inspect";
 import { primitiveAabb } from "./presets";
 import { buildEnclosureGeometry } from "./shell";
 import { connectedComponents } from "./parts";
-import type { AABB, Connection, EnclosureParams, ItemRequest, MeshData, Primitive, Vec3 } from "./types";
+import { defaultParams, type AABB, type Connection, type EnclosureParams, type ItemRequest, type MeshData, type Primitive, type Vec3 } from "./types";
 import { computeHeightfieldColumns, debugPlanConnectionRoutes, generate } from "./worker";
 
 const params: EnclosureParams = {
@@ -100,10 +100,14 @@ function makeImportRequest(
   };
 }
 
-function flushPosition(item: ItemRequest, face: "+x" | "-x" | "+y" | "-y"): Vec3 {
+function flushPosition(
+  item: ItemRequest,
+  face: "+x" | "-x" | "+y" | "-y",
+  enclosureParams: EnclosureParams = params,
+): Vec3 {
   const preWorld = transformedAabb(item.aabb, item.rotation, item.position);
   const combined = computeCombinedAabbWithFlush([{ aabb: item.aabb, rotation: item.rotation, flushFace: face }], [preWorld]);
-  const geom = buildEnclosureGeometry(combined, params);
+  const geom = buildEnclosureGeometry(combined, enclosureParams);
   const next: Vec3 = [...item.position];
   if (face === "+x") next[0] += geom.outer.max[0] - preWorld.max[0];
   else if (face === "-x") next[0] += geom.outer.min[0] - preWorld.min[0];
@@ -141,6 +145,16 @@ function hasSharedSegment(route: Vec3[], prior: Vec3[], minLength = 5): boolean 
 }
 
 describe("generate flushed cutouts", () => {
+  it("keeps a flushed base valid with the default rounded snap-fit seam", async () => {
+    const box: Primitive = { kind: "box", size: [20, 20, 10] };
+    const boxReq = makePrimitiveRequest("box", box, [0, 0, 0], "+x");
+    const flushedBox = { ...boxReq, position: flushPosition(boxReq, "+x", defaultParams) };
+    const result = await generate({ items: [flushedBox], params: defaultParams, cutouts: [] });
+
+    expect(result.base.indices.length / 3).toBeGreaterThan(12);
+    expect(result.lid.indices.length / 3).toBeGreaterThan(12);
+  });
+
   it("keeps the tongue and groove clear inside a flushed side-port aperture", async () => {
     const port: Primitive = { kind: "cylinder", axis: "x", radius: 4, height: 12 };
     const portReq = makePrimitiveRequest("port", port, [0, 0, 0], "+x");
@@ -171,8 +185,12 @@ describe("generate flushed cutouts", () => {
       [geom.grooveOuter.max[0] - 0.05, 1.5, geom.splitZ + 1.1],
     );
     const lidWall = sampleBox(
-      [geom.outer.max[0] - 0.08, 5.3, geom.splitZ + 0.3],
-      [geom.outer.max[0] + 0.08, 5.7, geom.splitZ + 1.1],
+      [geom.interfaceOuter.max[0] - 0.08, 5.3, geom.splitZ + 0.3],
+      [geom.interfaceOuter.max[0] + 0.08, 5.7, geom.splitZ + 1.1],
+    );
+    const lidExteriorMaterial = sampleBox(
+      [geom.interfaceOuter.max[0] - 0.08, -1.5, geom.splitZ + 0.3],
+      [geom.interfaceOuter.max[0] + 0.08, 1.5, geom.splitZ + 1.1],
     );
 
     expect(countTrianglesOverlappingAabb(result.base, baseAperture)).toBe(0);
@@ -180,6 +198,7 @@ describe("generate flushed cutouts", () => {
     expect(countTrianglesOverlappingAabb(result.base, baseWall)).toBeGreaterThan(0);
     expect(countTrianglesOverlappingAabb(result.base, baseEdgeMaterial)).toBeGreaterThan(0);
     expect(countTrianglesOverlappingAabb(result.lid, lidWall)).toBeGreaterThan(0);
+    expect(countTrianglesOverlappingAabb(result.lid, lidExteriorMaterial)).toBeGreaterThan(0);
   });
 
   it("supports the same empty/solid samples when the port sits below the split plane", async () => {
@@ -313,8 +332,8 @@ describe("generate flushed cutouts", () => {
       [geom.outer.max[0] + 0.08, 5.2, 0.8],
     );
     const frontTopWallClosed = sampleBox(
-      [geom.outer.max[0] - 0.08, -0.8, 2.6],
-      [geom.outer.max[0] + 0.08, 0.8, 3.2],
+      [geom.interfaceOuter.max[0] - 0.08, -0.8, 2.6],
+      [geom.interfaceOuter.max[0] + 0.08, 0.8, 3.2],
     );
 
     expect(countTrianglesOverlappingAabb(result.base, frontCenterOpen)).toBe(0);
@@ -457,6 +476,89 @@ describe("generate flushed cutouts", () => {
     expect(countTrianglesOverlappingAabb(result.base, boundingBoxCornerStillSolid)).toBeGreaterThan(0);
   });
 
+  it("extends a seam-crossing manual cutout through the maximum reinforcement", async () => {
+    const extremeParams: EnclosureParams = {
+      ...params,
+      wall: 0.8,
+      lipTol: 0.6,
+      snapFit: true,
+      snapSize: 0.8,
+    };
+    const primitive: Primitive = { kind: "box", size: [20, 20, 10] };
+    const item = makePrimitiveRequest("box", primitive, [0, 0, 0]);
+    const combined = computeCombinedAabbWithFlush(
+      [{ aabb: item.aabb, rotation: item.rotation, flushFace: item.flushFace }],
+      [transformedAabb(item.aabb, item.rotation, item.position)],
+    );
+    const geom = buildEnclosureGeometry(combined, extremeParams);
+    const result = await generate({
+      items: [item],
+      params: extremeParams,
+      cutouts: [{
+        id: "seam-cutout",
+        face: "+x",
+        u: -geom.outer.min[1],
+        v: geom.splitZ - geom.outer.min[2],
+        w: 6,
+        h: 2,
+        shape: "rect",
+      }],
+    });
+    const exteriorHolePoint: Vec3 = [
+      geom.interfaceOuter.max[0] - 0.2,
+      0,
+      geom.splitZ + 0.35,
+    ];
+
+    expect(geom.interfaceOuter.max[0] - geom.outer.max[0]).toBeCloseTo(3.75);
+    expect(meshContainsPoint(result.lid, exteriorHolePoint)).toBe(false);
+    expect(meshContainsPoint(result.lid, [
+      geom.interfaceOuter.max[0] - 0.2,
+      4,
+      geom.splitZ + 0.35,
+    ])).toBe(true);
+  });
+
+  it("keeps material around groove corners when the body fillet is large", async () => {
+    const highFilletParams: EnclosureParams = {
+      ...params,
+      fillet: 5,
+      snapFit: false,
+    };
+    const primitive: Primitive = { kind: "box", size: [20, 20, 10] };
+    const item = makePrimitiveRequest("box", primitive, [0, 0, 0]);
+    const combined = computeCombinedAabbWithFlush(
+      [{ aabb: item.aabb, rotation: item.rotation, flushFace: item.flushFace }],
+      [transformedAabb(item.aabb, item.rotation, item.position)],
+    );
+    const geom = buildEnclosureGeometry(combined, highFilletParams);
+    const result = await generate({ items: [item], params: highFilletParams, cutouts: [] });
+    const cornerSkinPoint: Vec3 = [
+      geom.grooveOuter.max[0] + 0.4,
+      geom.grooveOuter.max[1] + 0.4,
+      geom.splitZ + 1,
+    ];
+
+    expect(result.base.indices.length / 3).toBeGreaterThan(12);
+    expect(result.lid.indices.length / 3).toBeGreaterThan(12);
+    expect(meshContainsPoint(result.lid, cornerSkinPoint)).toBe(true);
+  });
+
+  it("reports reinforced mesh bounds separately from nominal body bounds", async () => {
+    const primitive: Primitive = { kind: "box", size: [20, 20, 10] };
+    const item = makePrimitiveRequest("box", primitive, [0, 0, 0]);
+    const combined = computeCombinedAabbWithFlush(
+      [{ aabb: item.aabb, rotation: item.rotation, flushFace: item.flushFace }],
+      [transformedAabb(item.aabb, item.rotation, item.position)],
+    );
+    const geom = buildEnclosureGeometry(combined, defaultParams);
+    const result = await generate({ items: [item], params: defaultParams, cutouts: [] });
+
+    expect(result.bodyOuter).toEqual(geom.outer);
+    expect(result.outer.min[0]).toBeCloseTo(geom.interfaceOuter.min[0]);
+    expect(result.outer.max[0]).toBeCloseTo(geom.interfaceOuter.max[0]);
+  });
+
   it("per-item fit clearance can grow the enclosure beyond the global clearance", async () => {
     const primitive: Primitive = { kind: "box", size: [20, 20, 10] };
     const regular = makePrimitiveRequest("regular", primitive, [0, 0, 0]);
@@ -464,8 +566,10 @@ describe("generate flushed cutouts", () => {
 
     const regularResult = await generate({ items: [regular], params, cutouts: [] });
     const looseResult = await generate({ items: [loose], params, cutouts: [] });
-    const regularWidth = regularResult.outer.max[0] - regularResult.outer.min[0];
-    const looseWidth = looseResult.outer.max[0] - looseResult.outer.min[0];
+    const regularOuter = regularResult.bodyOuter ?? regularResult.outer;
+    const looseOuter = looseResult.bodyOuter ?? looseResult.outer;
+    const regularWidth = regularOuter.max[0] - regularOuter.min[0];
+    const looseWidth = looseOuter.max[0] - looseOuter.min[0];
 
     expect(regularWidth).toBeCloseTo(25);
     expect(looseWidth).toBeCloseTo(28);

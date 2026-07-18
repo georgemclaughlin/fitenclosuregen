@@ -130,6 +130,6 @@ export function computeFlushAccessPocket(
     max[a] = Math.min(inner.max[a], cutoutAabb.max[a] + clearance);
   }
   max[2] = Math.min(max[2], splitZ);
-  if (max[2] <= min[2]) return null;
+  if (max.some((value, axis) => value <= min[axis])) return null;
   return { min, max };
 }

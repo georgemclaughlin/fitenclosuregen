@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { buildEnclosureGeometry, cutoutBox, faceFrame } from "./shell";
+import {
+  buildEnclosureGeometry,
+  cutoutBox,
+  faceFrame,
+  MIN_INTERFACE_SKIN,
+  MIN_TONGUE_THICKNESS,
+} from "./shell";
 import { computeAabb, expandAabb } from "./bbox";
 import { defaultParams, type AABB, type EnclosureParams } from "./types";
 
@@ -46,20 +52,33 @@ describe("buildEnclosureGeometry", () => {
     expect(g.splitZ).toBeGreaterThanOrEqual(g.inner.max[2]);
   });
 
-  it("tongueOuter is larger than tongueInner (valid ring)", () => {
+  it("uses a three-line minimum tongue instead of a one-line feature", () => {
     const g = buildEnclosureGeometry(comp, baseParams);
-    expect(g.tongueOuter.max[0]).toBeGreaterThan(g.tongueInner.max[0]);
-    expect(g.tongueInner.min[0]).toBeGreaterThan(g.tongueOuter.min[0]);
+    expect(g.tongueOuter.max[0] - g.tongueInner.max[0]).toBeCloseTo(MIN_TONGUE_THICKNESS);
+    expect(g.tongueInner.min[0] - g.tongueOuter.min[0]).toBeCloseTo(MIN_TONGUE_THICKNESS);
   });
 
-  it("groove is wider than tongue (fit tolerance on both sides of ring)", () => {
+  it("applies fit tolerance once at the outer mating face", () => {
     const g = buildEnclosureGeometry(comp, baseParams);
-    // outer face of groove extends further outward than outer face of tongue
-    expect(g.grooveOuter.max[0]).toBeGreaterThan(g.tongueOuter.max[0]);
-    expect(g.grooveOuter.min[0]).toBeLessThan(g.tongueOuter.min[0]);
-    // the groove slot's opening reaches further toward the cavity than the tongue's inner face
-    expect(g.grooveInner.max[0]).toBeLessThan(g.tongueInner.max[0]);
-    expect(g.grooveInner.min[0]).toBeGreaterThan(g.tongueInner.min[0]);
+    expect(g.grooveOuter.max[0] - g.tongueOuter.max[0]).toBeCloseTo(baseParams.lipTol);
+    expect(g.tongueOuter.min[0] - g.grooveOuter.min[0]).toBeCloseTo(baseParams.lipTol);
+    expect(g.grooveInner.min[0]).toBeCloseTo(g.inner.min[0]);
+    expect(g.grooveInner.max[0]).toBeCloseTo(g.inner.max[0]);
+  });
+
+  it("reinforces the seam enough to leave a printable lid skin", () => {
+    const g = buildEnclosureGeometry(comp, baseParams);
+    expect(g.interfaceOuter.max[0] - g.grooveOuter.max[0]).toBeGreaterThanOrEqual(MIN_INTERFACE_SKIN - 1e-9);
+    expect(g.grooveOuter.min[0] - g.interfaceOuter.min[0]).toBeGreaterThanOrEqual(MIN_INTERFACE_SKIN - 1e-9);
+    expect(g.interfaceOuter.max[0]).toBeGreaterThan(g.outer.max[0]);
+    expect(g.interfaceOuter.min[2]).toBeLessThan(g.splitZ);
+    expect(g.interfaceOuter.max[2]).toBeGreaterThan(g.grooveZMax);
+  });
+
+  it("caps the seam fillet so rounded corners retain the minimum skin", () => {
+    const g = buildEnclosureGeometry(comp, { ...baseParams, fillet: 5 });
+    expect(g.interfaceFillet).toBeCloseTo(MIN_INTERFACE_SKIN);
+    expect(g.interfaceFillet).toBeLessThan(5);
   });
 
   it("snap-fit keeps a thicker outer skin on the lid pockets", () => {
@@ -68,12 +87,12 @@ describe("buildEnclosureGeometry", () => {
     expect(g.snapPockets).toHaveLength(4);
     const upperPocket = g.snapPockets!.find((p) => p.max[1] > 0)!;
     const lowerPocket = g.snapPockets!.find((p) => p.min[1] < 0)!;
-    expect(g.outer.max[1] - upperPocket.max[1]).toBeGreaterThanOrEqual(0.8 - 1e-9);
-    expect(lowerPocket.min[1] - g.outer.min[1]).toBeGreaterThanOrEqual(0.8 - 1e-9);
+    expect(g.interfaceOuter.max[1] - upperPocket.max[1]).toBeGreaterThanOrEqual(MIN_INTERFACE_SKIN - 1e-9);
+    expect(lowerPocket.min[1] - g.interfaceOuter.min[1]).toBeGreaterThanOrEqual(MIN_INTERFACE_SKIN - 1e-9);
   });
 
-  it("snap-fit groove opens directly to the inner cavity", () => {
-    const g = buildEnclosureGeometry(comp, { ...baseParams, snapFit: true });
+  it("groove always opens directly to the inner cavity", () => {
+    const g = buildEnclosureGeometry(comp, baseParams);
     expect(g.grooveInner.min[0]).toBeCloseTo(g.inner.min[0]);
     expect(g.grooveInner.max[0]).toBeCloseTo(g.inner.max[0]);
     expect(g.grooveInner.min[1]).toBeCloseTo(g.inner.min[1]);

@@ -388,6 +388,7 @@ function buildDebugSnapshot(input: {
     result: input.result
       ? {
           outer: roundAabb(input.result.outer),
+          bodyOuter: roundAabb(input.result.bodyOuter ?? input.result.outer),
           baseTriangles: input.result.base.indices.length / 3,
           lidTriangles: input.result.lid.indices.length / 3,
           debugMeshes: input.result.debug?.map((d) => ({
