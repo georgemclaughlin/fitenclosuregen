@@ -1440,10 +1440,10 @@ export async function generate(req: GenerateRequest): Promise<GenerateResult> {
   const outerBody = params.fillet > 0
     ? roundedBoxFromAabb(M, geom.outer, params.fillet)
     : boxFromAabb(Manifold, geom.outer);
-  const interfaceBand = geom.interfaceFillet > 0
+  const reinforcedShell = geom.interfaceFillet > 0
     ? roundedBoxFromAabb(M, geom.interfaceOuter, geom.interfaceFillet)
     : boxFromAabb(Manifold, geom.interfaceOuter);
-  const outerBox = Manifold.union([outerBody, interfaceBand]);
+  const outerBox = Manifold.union([outerBody, reinforcedShell]);
   const reinforcedOuter: AABB = {
     min: [
       Math.min(geom.outer.min[0], geom.interfaceOuter.min[0]),

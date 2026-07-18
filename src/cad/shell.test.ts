@@ -66,13 +66,13 @@ describe("buildEnclosureGeometry", () => {
     expect(g.grooveInner.max[0]).toBeCloseTo(g.inner.max[0]);
   });
 
-  it("reinforces the seam enough to leave a printable lid skin", () => {
+  it("uses a flush full-height profile with enough material for a printable lid skin", () => {
     const g = buildEnclosureGeometry(comp, baseParams);
     expect(g.interfaceOuter.max[0] - g.grooveOuter.max[0]).toBeGreaterThanOrEqual(MIN_INTERFACE_SKIN - 1e-9);
     expect(g.grooveOuter.min[0] - g.interfaceOuter.min[0]).toBeGreaterThanOrEqual(MIN_INTERFACE_SKIN - 1e-9);
     expect(g.interfaceOuter.max[0]).toBeGreaterThan(g.outer.max[0]);
-    expect(g.interfaceOuter.min[2]).toBeLessThan(g.splitZ);
-    expect(g.interfaceOuter.max[2]).toBeGreaterThan(g.grooveZMax);
+    expect(g.interfaceOuter.min[2]).toBeCloseTo(g.outer.min[2]);
+    expect(g.interfaceOuter.max[2]).toBeCloseTo(g.outer.max[2]);
   });
 
   it("caps the seam fillet so rounded corners retain the minimum skin", () => {

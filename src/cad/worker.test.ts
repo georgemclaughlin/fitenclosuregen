@@ -222,11 +222,11 @@ describe("generate flushed cutouts", () => {
 
     const emptyWall = sampleBox(
       [geom.inner.max[0] - 0.9, -1.5, -1],
-      [geom.outer.max[0] - 0.1, 1.5, 1],
+      [geom.interfaceOuter.max[0] - 0.1, 1.5, 1],
     );
     const solidWall = sampleBox(
-      [geom.outer.max[0] - 0.08, 5.3, -1],
-      [geom.outer.max[0] + 0.08, 5.7, 1],
+      [geom.interfaceOuter.max[0] - 0.08, 5.3, -1],
+      [geom.interfaceOuter.max[0] + 0.08, 5.7, 1],
     );
 
     expect(countTrianglesOverlappingAabb(result.base, emptyWall)).toBe(0);
@@ -316,20 +316,20 @@ describe("generate flushed cutouts", () => {
     const result = await generate({ items: [flushedImport], params, cutouts: [] });
 
     const frontCenterOpen = sampleBox(
-      [geom.outer.max[0] - 0.08, -0.8, -0.8],
-      [geom.outer.max[0] + 0.08, 0.8, 0.8],
+      [geom.interfaceOuter.max[0] - 0.08, -0.8, -0.8],
+      [geom.interfaceOuter.max[0] + 0.08, 0.8, 0.8],
     );
     const frontLowerOpen = sampleBox(
-      [geom.outer.max[0] - 0.08, -0.8, -1.8],
-      [geom.outer.max[0] + 0.08, 0.8, -1.2],
+      [geom.interfaceOuter.max[0] - 0.08, -0.8, -1.8],
+      [geom.interfaceOuter.max[0] + 0.08, 0.8, -1.2],
     );
     const frontBelowPortClosed = sampleBox(
-      [geom.outer.max[0] - 0.08, -0.8, -4.4],
-      [geom.outer.max[0] + 0.08, 0.8, -3.4],
+      [geom.interfaceOuter.max[0] - 0.08, -0.8, -4.4],
+      [geom.interfaceOuter.max[0] + 0.08, 0.8, -3.4],
     );
     const frontSideWallClosed = sampleBox(
-      [geom.outer.max[0] - 0.08, 4.6, -0.8],
-      [geom.outer.max[0] + 0.08, 5.2, 0.8],
+      [geom.interfaceOuter.max[0] - 0.08, 4.6, -0.8],
+      [geom.interfaceOuter.max[0] + 0.08, 5.2, 0.8],
     );
     const frontTopWallClosed = sampleBox(
       [geom.interfaceOuter.max[0] - 0.08, -0.8, 2.6],
@@ -557,6 +557,21 @@ describe("generate flushed cutouts", () => {
     expect(result.bodyOuter).toEqual(geom.outer);
     expect(result.outer.min[0]).toBeCloseTo(geom.interfaceOuter.min[0]);
     expect(result.outer.max[0]).toBeCloseTo(geom.interfaceOuter.max[0]);
+  });
+
+  it("carries the reinforced side plane through the base and lid", async () => {
+    const primitive: Primitive = { kind: "box", size: [20, 20, 10] };
+    const item = makePrimitiveRequest("box", primitive, [0, 0, 0]);
+    const combined = computeCombinedAabbWithFlush(
+      [{ aabb: item.aabb, rotation: item.rotation, flushFace: item.flushFace }],
+      [transformedAabb(item.aabb, item.rotation, item.position)],
+    );
+    const geom = buildEnclosureGeometry(combined, defaultParams);
+    const result = await generate({ items: [item], params: defaultParams, cutouts: [] });
+    const sideX = geom.interfaceOuter.max[0] - 0.2;
+
+    expect(meshContainsPoint(result.base, [sideX, 0, geom.outer.min[2] + 0.5])).toBe(true);
+    expect(meshContainsPoint(result.lid, [sideX, 0, geom.outer.max[2] - 0.5])).toBe(true);
   });
 
   it("per-item fit clearance can grow the enclosure beyond the global clearance", async () => {

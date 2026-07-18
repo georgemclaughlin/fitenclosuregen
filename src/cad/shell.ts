@@ -11,9 +11,9 @@ export interface EnclosureGeometry {
   inner: AABB;
   /** Outer shell AABB. */
   outer: AABB;
-  /** Locally reinforced outer AABB around the lid/base seam. */
+  /** Reinforced full-height shell AABB; keeps the exterior flush across the seam. */
   interfaceOuter: AABB;
-  /** Fillet radius for the seam band, capped to preserve corner skin. */
+  /** Fillet radius for the reinforced shell, capped to preserve corner skin. */
   interfaceFillet: number;
   /** Horizontal plane Z where the shell is cut into base/lid. */
   splitZ: number;
@@ -81,8 +81,9 @@ export function buildEnclosureGeometry(
   // from both faces. At the defaults that left only 0.4 mm of plastic. This is
   // an inward-open rabbet instead: the cavity is one face of both parts, the
   // tongue has a fixed printable thickness, and tolerance is added once at the
-  // outer mating face. A local seam collar supplies the material needed to keep
-  // the lid skin thick without shrinking the component cavity.
+  // outer mating face. A full-height reinforced profile supplies the material
+  // needed to keep the lid skin thick without shrinking the component cavity
+  // or creating a visible step at the seam.
   const tongueThickness = MIN_TONGUE_THICKNESS;
   const snapEnabled = snapFit && snapSize > 0 && effectiveLipDepth > 0;
   const desiredTabOutset = snapEnabled ? Math.max(0.3, snapSize) : 0;
@@ -95,18 +96,17 @@ export function buildEnclosureGeometry(
   // single watertight solid instead of two coplanar shells touching at z=splitZ.
   const tongueFuseDepth = Math.min(0.05, Math.max(0, effectiveLipDepth * 0.1));
   const grooveZMax = splitZ + effectiveLipDepth + lipTol;
-  const seamShoulder = Math.max(MIN_TONGUE_THICKNESS, fillet);
   const interfaceFillet = Math.min(fillet, MIN_INTERFACE_SKIN);
   const interfaceOuter: AABB = {
     min: [
       outer.min[0] - interfaceExtra,
       outer.min[1] - interfaceExtra,
-      Math.max(outer.min[2], splitZ - seamShoulder),
+      outer.min[2],
     ],
     max: [
       outer.max[0] + interfaceExtra,
       outer.max[1] + interfaceExtra,
-      Math.min(outer.max[2], grooveZMax + seamShoulder),
+      outer.max[2],
     ],
   };
 
